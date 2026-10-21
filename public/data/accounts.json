@@ -1,0 +1,34 @@
+{
+  "_note": "Cuentas de axcsOS gestionadas por el panel de administrador. Las contraseñas se guardan como PBKDF2-SHA256 (100000 iteraciones, sal aleatoria por cuenta) y nunca en texto plano.",
+  "version": 1,
+  "accounts": [
+    {
+      "id": "acc-mvihljz2osjdv",
+      "username": "elcostinero",
+      "salt": "crIXw4H/xszWUjIDO33/4w==",
+      "hash": "SCONkLkk1hl9LxYGDXDu5K7ke3skX5I5Ey6UT65Ry00=",
+      "created": "2026-10-21T19:10:12.830Z"
+    },
+    {
+      "id": "acc-mviih9wa2xf5j",
+      "username": "alvaro_j",
+      "salt": "51AxS+O393SD52YQaeusDw==",
+      "hash": "r8pJ31ngbdjGChw5tqsP6Jc2MIDCVM2pMahNMWD+X90=",
+      "created": "2026-10-21T19:34:52.762Z"
+    },
+    {
+      "id": "acc-mviij9pg6adq1",
+      "username": "niggaflow_08",
+      "salt": "WPzgO1TPZ8WzMT0xsmZFbQ==",
+      "hash": "0BDXGB/SWL9a+B5JcFjb3yUwjc77A8MK1vhHGiPg/gU=",
+      "created": "2026-10-21T19:36:25.828Z"
+    },
+    {
+      "id": "acc-mviodfkv1jm40",
+      "username": "mateo_rgz",
+      "salt": "iLhk54kGu+eUfzhk4rt/ig==",
+      "hash": "lAdSb/sGPGPyOcBsfaiPAamm5AKpnk0FLcMhhpArn4w=",
+      "created": "2026-10-21T22:19:51.199Z"
+    }
+  ]
+}
