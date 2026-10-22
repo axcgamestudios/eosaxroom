@@ -43,6 +43,13 @@
       "salt": "hT63q9GMzKArsZPXiwcW2Q==",
       "hash": "6AIZOIB2AumMyl44b36yknHHy63lQtfRZ0yKWMZhaig=",
       "created": "2026-10-22T00:18:31.723Z"
+    },
+    {
+      "id": "acc-mvisoha2lpjso",
+      "username": "ilogoa",
+      "salt": "fun1SOby45G6ju4SqQD0xw==",
+      "hash": "G1UqKCts9krqZdA2RM+/P0tgfUZQmc8TFhSMSLWt9iw=",
+      "created": "2026-10-22T00:20:25.082Z"
     }
   ]
 }
