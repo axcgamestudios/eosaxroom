@@ -26,15 +26,21 @@ import { findWebAppById, WEBAPP_PREFIX } from "../services/webapps";
    ------------------------------------------------------------
    Una app instalada (App Store o Safari → Instalar como app)
    corre con el motor Scramjet dentro de su propia ventana, sin
-   chrome de navegador. Escalera honesta:
-   motor → conexión directa (IP del usuario) → error con salida
-   a Safari. YouTube instalado → cliente nativo del OS.
+   chrome de navegador. SIEMPRE abre con el motor (navegador
+   nativo); la conexión directa es SOLO respaldo honesto cuando el
+   motor no puede con el sitio — nunca el punto de partida, aunque
+   el sitio ya haya cargado en directo antes. YouTube instalado →
+   cliente nativo del OS.
    ============================================================ */
 
 type Phase = "engine" | "direct" | "error";
 
 const ENGINE_STALL_MS = 20000; // sin progreso del documento por el motor
 const ENGINE_CAP_MS = 45000; // tope antes de probar directo
+/* Pista (no atajo): si este sitio solo ha cargado en directo hasta ahora, el
+   motor recibe una ventana más corta antes del respaldo — pero SIEMPRE se intenta. */
+const ENGINE_FAST_STALL_MS = 9000;
+const ENGINE_FAST_CAP_MS = 16000;
 const DIRECT_STALL_MS = 26000; // directo colgado → error honesto
 
 /* espera (fuera del componente) a que el iframe esté montado */
@@ -67,14 +73,14 @@ export default function WebAppFrame({ win }: AppProps) {
 
   const [title, setTitle] = useState(hostOf(url) || "App");
   const [loading, setLoading] = useState(true);
-  const [phase, setPhase] = useState<Phase>(directOkHosts().includes(hostOf(url)) ? "direct" : "engine");
+  const [phase, setPhase] = useState<Phase>("engine"); // una app SIEMPRE abre con el motor
   const [error, setError] = useState<string | null>(null);
   const [fNonce, setFNonce] = useState(0); // remonta el iframe directo
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const frameRef = useRef<ScramjetFrameApi | null>(null);
   const ctrlRef = useRef<ScramjetControllerApi | null>(null);
-  const ladderRef = useRef<{ start: number; lastProgress: number; lastSig: string } | null>(null);
+  const ladderRef = useRef<{ start: number; lastProgress: number; lastSig: string; fast?: boolean } | null>(null);
   const aliveRef = useRef(true);
 
   /* vista YouTube estable (objeto memoizado: no se recrea en cada render) */
@@ -88,7 +94,7 @@ export default function WebAppFrame({ win }: AppProps) {
       setError(null);
       setLoading(true);
       setPhase("engine");
-      ladderRef.current = { start: Date.now(), lastProgress: Date.now(), lastSig: "" };
+      ladderRef.current = { start: Date.now(), lastProgress: Date.now(), lastSig: "", fast: directOkHosts().includes(hostOf(url)) };
       try {
         const ctrl = await ensureEngine(browser.wispUrl);
         if (!aliveRef.current) return;
@@ -123,16 +129,11 @@ export default function WebAppFrame({ win }: AppProps) {
     aliveRef.current = true;
     if (!url || ytView) return;
     // arranque diferido: el estado inicial ya es "cargando" y así el efecto
-    // no cambia estado de forma síncrona (sin renders en cascada)
+    // no cambia estado de forma síncrona (sin renders en cascada).
+    // Sin importar la memoria de sitios direct-ok: el motor SIEMPRE primero.
     const t = setTimeout(() => {
       if (!aliveRef.current) return;
-      if (directOkHosts().includes(hostOf(url))) {
-        // memoria compartida con Safari: este sitio va mejor en directo
-        setLoading(true);
-        ladderRef.current = { start: Date.now(), lastProgress: Date.now(), lastSig: "" };
-      } else {
-        void loadWithEngine(false);
-      }
+      void loadWithEngine(false);
     }, 0);
     return () => {
       aliveRef.current = false;
@@ -165,8 +166,8 @@ export default function WebAppFrame({ win }: AppProps) {
             /* ignore */
           }
         }
-        const stalled = now - l.lastProgress > ENGINE_STALL_MS;
-        const overdue = now - l.start > ENGINE_CAP_MS;
+        const stalled = now - l.lastProgress > (l.fast ? ENGINE_FAST_STALL_MS : ENGINE_STALL_MS);
+        const overdue = now - l.start > (l.fast ? ENGINE_FAST_CAP_MS : ENGINE_CAP_MS);
         if (stalled || overdue) {
           notify("webapp", "Probando conexión directa", `${hostOf(url)} no avanzó con el motor; probando desde tu conexión…`);
           setPhase("direct");
