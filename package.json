@@ -11,7 +11,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "build:pages": "BUILD_TARGET=pages next build"
+    "build:pages": "node scripts/build-pages.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

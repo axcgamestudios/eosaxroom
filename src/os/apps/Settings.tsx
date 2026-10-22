@@ -19,6 +19,12 @@ import {
 } from "../engine/scramjet";
 import { getAccount, onAccount, type AosIdProfile } from "../services/account";
 import { checkEmailCode, getAxcid, markEmailVerified, sendEmailCode, type AxcidEntry } from "../services/axcid";
+import { deleteCredential, useVault } from "../services/vault";
+import {
+  clearEngineSiteData,
+  isWebSessionBindingEnabled,
+  setWebSessionBindingEnabled,
+} from "../services/websession";
 type Pane = "appearance" | "wallpaper" | "dock" | "browser" | "account" | "general";
 
 const PANES: { id: Pane; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
@@ -368,6 +374,108 @@ export default function SettingsApp({ win }: AppProps) {
 
 /* ================= panel Cuenta ================= */
 
+/* Contraseñas guardadas (bóveda AES-256) + sesión web ligada al perfil */
+function VaultCard() {
+  const notify = useOS((s) => s.notify);
+  const session = useOS((s) => s.session);
+  const entries = useVault();
+  const [binding, setBinding] = useState(true);
+  const [clearing, setClearing] = useState(false);
+
+  useEffect(() => {
+    setBinding(isWebSessionBindingEnabled());
+  }, []);
+
+  const toggleBinding = () => {
+    const next = !binding;
+    setWebSessionBindingEnabled(next);
+    setBinding(next);
+    notify(
+      "settings",
+      "Sesiones del navegador",
+      next ? "Las cookies del motor quedan ligadas a tu cuenta: al cambiar de cuenta, el navegador se reinicia y se limpian" : "Las cookies del motor se comparten entre cuentas (comportamiento clásico)",
+    );
+  };
+
+  const clearNow = async () => {
+    if (clearing) return;
+    setClearing(true);
+    try {
+      const r = await clearEngineSiteData();
+      notify("settings", "Datos de navegación", r.detail);
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <Card title="Contraseñas y autocompletado">
+      <Row>
+        <div className="min-w-0 flex-1">
+          <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">
+            Contraseñas guardadas ({entries.length})
+          </p>
+          <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
+            Cuando inicies sesión en una página con Safari, te ofrecerá guardar la contraseña. Se almacena cifrada con
+            <b> AES-256-GCM</b> y una clave propia de este dispositivo: nunca en texto plano.
+          </p>
+          {entries.length > 0 && (
+            <div className="mac-scrollbar mt-2 max-h-44 space-y-1 overflow-y-auto rounded-lg bg-black/[0.03] p-1.5 dark:bg-white/[0.04]">
+              {entries.map((e) => (
+                <div key={e.domain} className="flex items-center gap-2 rounded-md px-2 py-1.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[11.5px] font-medium text-neutral-700 dark:text-neutral-200">{e.domain}</p>
+                    <p className="truncate text-[10px] text-neutral-400">
+                      {e.username} · guardada el {new Date(e.updatedAt).toLocaleDateString("es-ES")}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      deleteCredential(e.domain);
+                      notify("settings", "Contraseña eliminada", `${e.domain} ya no está en la bóveda`);
+                    }}
+                    className="shrink-0 rounded-md px-2 py-1 text-[10.5px] font-medium text-rose-500 transition hover:bg-rose-500/10"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Row>
+      <Row>
+        <div className="min-w-0 flex-1">
+          <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Sesiones ligadas a la cuenta{session ? ` «${session.username}»` : ""}</p>
+          <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
+            Las cookies de navegación se asocian a tu cuenta: al volver a abrir el navegador, las páginas siguen con la
+            sesión iniciada; si entra OTRA cuenta en este dispositivo, el navegador se reinicia y sus datos se borran de
+            verdad (nada se hereda entre perfiles). El borrado manual también reinicia: es la única forma real de
+            liberar la base del motor.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              onClick={toggleBinding}
+              className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition ${
+                binding ? "bg-[var(--accent-os)] text-white hover:opacity-90" : "border border-black/10 text-neutral-600 hover:bg-black/5 dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/10"
+              }`}
+            >
+              {binding ? "Ligadas a la cuenta ✓ (tocar para desactivar)" : "Desactivado: cookies compartidas (tocar para ligar)"}
+            </button>
+            <button
+              onClick={() => void clearNow()}
+              disabled={clearing}
+              className="rounded-md border border-rose-500/30 px-3 py-1.5 text-[11px] font-medium text-rose-500 transition hover:bg-rose-500/10 disabled:opacity-50"
+            >
+              {clearing ? "Reiniciando…" : "Borrar datos de navegación (reinicia)"}
+            </button>
+          </div>
+        </div>
+      </Row>
+    </Card>
+  );
+}
+
 /* AXC ID: correo verificado → sesión persistente con cookie + entrada por código */
 function AxcIdCard() {
   const session = useOS((s) => s.session);
@@ -442,7 +550,7 @@ function AxcIdCard() {
   };
 
   return (
-    <Card title="AXC ID · acceso sin contraseña">
+    <Card title="AXC ID · tu correo">
       <Row>
         <div className="min-w-0 flex-1">
           <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">
@@ -450,8 +558,8 @@ function AxcIdCard() {
           </p>
           <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
             {entry?.verified
-              ? "Verificado ✓ — puedes entrar desde la pantalla de inicio solo con un código a este correo, sin contraseña."
-              : "Añade tu correo y verifícalo con el código que te llega: podrás entrar sin contraseña con un código a ese correo. «Recordarme» en la pantalla de inicio funciona igual, con o sin correo."}
+              ? "Verificado ✓ — es el correo que Safari rellena por ti al iniciar sesión en la web, y al que puedes entrar sin contraseña desde la pantalla de inicio."
+              : "Pon el correo que YA TIENES (Gmail, Outlook, el que sea): te llega un código de 6 dígitos y, al verificarlo, Safari lo usará para rellenar tus inicios de sesión en las páginas. «Recordarme» en la pantalla de inicio funciona igual, con o sin correo."}
           </p>
           <div className="mt-2 flex gap-2">
             <input
@@ -510,9 +618,11 @@ function AxcIdCard() {
           )}
           {msg && <p className="mt-2 text-[10.5px] leading-relaxed text-amber-600 dark:text-amber-400">{msg}</p>}
           {entry?.verified && (
-            <p className="mt-1.5 text-[10px] text-neutral-400">
-              El envío usa FormSubmit (gratuito, sin servidor). La primera vez te pedirá activar su enlace desde tu correo;
-              si el envío falla, el servicio puede estar ocupado — inténtalo de nuevo.
+            <p className="mt-1.5 text-[10px] leading-relaxed text-neutral-400">
+              El código se envía por el servidor (/api/auth/send-otp): usa Resend si hay RESEND_API_KEY configurada y,
+              si no, FormSubmit (gratuito; la primera vez pide activar su enlace desde tu correo). Las contraseñas que
+              Safari te ofrezca guardar viven cifradas con AES-256 en este dispositivo (ver «Contraseñas y
+              autocompletado» aquí abajo).
             </p>
           )}
         </div>
@@ -651,6 +761,7 @@ function AccountPane() {
         )}
       </Card>
       <AxcIdCard />
+      <VaultCard />
       <Card title="Cómo funciona tu cuenta">
         <div className="px-4 py-3 text-[10.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
           El axcsOS ID vive en este dispositivo: se genera un par de claves <b>ECDH P-256</b> y tu <b>@id</b> se deriva de la

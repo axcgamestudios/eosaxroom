@@ -235,6 +235,12 @@ export const useOS = create<OsStore>()(
         });
         // mantiene el motor de navegación propio (Render) caliente durante la sesión
         startWispKeepalive();
+        // sesión web ligada al perfil: las cookies del motor se asocian a ESTA
+        // cuenta — mismo perfil las conserva (sesiones persistentes), cambio de
+        // cuenta las borra (nada se hereda entre perfiles)
+        if (account?.id) {
+          void import("./services/websession").then((m) => m.bindEngineSessionToProfile(account.id)).catch(() => undefined);
+        }
         const who = account?.username ?? get().settings.userName;
         setTimeout(() => {
           get().notify("finder", `Hola, ${who}`, "Sesión iniciada en axcsOS.");

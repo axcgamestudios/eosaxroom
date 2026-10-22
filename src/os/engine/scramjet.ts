@@ -19,6 +19,8 @@ export const SCRAMJET_VERSION = "1.1.0";
 export const BAREMUX_VERSION = "2.1.9";
 export const LIBCURL_VERSION = "1.5.2";
 
+import { consumePendingEngineClear } from "./engineData";
+
 /** Motor propio del estudio: wisp-server-node desplegado en Render.
  *  Verificado en vivo: handshake wisp v1 + CONNECT + HTTP 200 real a través del túnel.
  *  Transporte principal del sistema (respaldado por la cadena de failover). */
@@ -241,6 +243,14 @@ async function doInit(wispUrl: string): Promise<ScramjetControllerApi> {
   const b = appBase();
   updateDiag({ status: "loading", wispUrl, error: undefined });
   try {
+    // higiene del jar: si hay un borrado pendiente (cambio de cuenta o borrado
+    // manual), ESTE es el único momento en que la base no tiene conexiones
+    // abiertas y el borrado es real — antes de cargar nada del motor.
+    try {
+      await consumePendingEngineClear();
+    } catch {
+      /* nunca bloquear el arranque por esto */
+    }
     await Promise.all([loadScript(`${b}/scram/scramjet.all.js`), loadScript(`${b}/baremux/index.js`)]);
     updateDiag({ scriptsLoaded: true });
 

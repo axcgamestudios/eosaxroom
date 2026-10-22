@@ -12,6 +12,7 @@ import {
   Home,
   Lock,
   Mail as MailIconLucide,
+  KeyRound,
   MonitorDown,
   Plus,
   RotateCw,
@@ -41,7 +42,11 @@ import {
   type ScramjetFrameApi,
 } from "../engine/scramjet";
 import { findWebAppByUrl, installWebApp } from "../services/webapps";
-import { mailAddress } from "../services/mail";
+import {
+  identityEmail,
+  useAutofillAssistant,
+  type AutofillCtx,
+} from "../services/autofill";
 import { looksLikeErrorPage } from "../engine/pageload";
 
 /* ============================================================
@@ -143,67 +148,7 @@ function rememberDirectOk(host: string): void {
 
 /* (detección de páginas de error compartida: ../engine/pageload.ts) */
 
-/* ---------- iniciar sesión con el correo de axcsOS ----------
-   Las páginas servidas por el motor son MISMO ORIGEN: Safari puede leer su
-   DOM, detectar formularios de acceso con campo de correo y RELLENARLOS de
-   verdad con la dirección de Mail del usuario. En modo directo (cross-origin)
-   el relleno automático no es posible: se copia al portapapeles. Nunca se
-   finge una capacidad que no existe. */
-
-const NON_TEXT_TYPES = new Set(["hidden", "checkbox", "radio", "button", "submit", "file", "range", "color", "image", "number"]);
-
-function fieldMeta(el: HTMLInputElement): string {
-  return `${el.name ?? ""} ${el.id ?? ""} ${el.placeholder ?? ""} ${el.getAttribute("autocomplete") ?? ""} ${el.getAttribute("aria-label") ?? ""}`.toLowerCase();
-}
-
-/** ¿un campo que espera un correo? */
-function isEmailField(el: HTMLInputElement): boolean {
-  const t = (el.getAttribute("type") ?? "text").toLowerCase();
-  if (NON_TEXT_TYPES.has(t) || el.disabled || el.readOnly) return false;
-  if (t === "email" || el.autocomplete?.includes("email")) return true;
-  return /e-?mail|correo/.test(fieldMeta(el));
-}
-
-/** en formularios usuario+contraseña, el campo de usuario (le vale un correo) */
-function isUserField(el: HTMLInputElement, hasPassword: boolean): boolean {
-  if (!hasPassword) return false;
-  const t = (el.getAttribute("type") ?? "text").toLowerCase();
-  if (NON_TEXT_TYPES.has(t) || t === "password" || el.disabled || el.readOnly) return false;
-  return /user|usuario|cuenta|login|nick/.test(fieldMeta(el));
-}
-
-function findLoginEmailField(doc: Document | null | undefined, depth = 0): { field: HTMLInputElement; emailish: boolean } | null {
-  if (!doc || depth > 1) return null;
-  try {
-    const inputs = Array.from(doc.querySelectorAll<HTMLInputElement>("input"));
-    const email = inputs.find(isEmailField);
-    if (email) return { field: email, emailish: true };
-    const hasPassword = inputs.some((i) => (i.getAttribute("type") ?? "").toLowerCase() === "password");
-    const user = inputs.find((i) => isUserField(i, hasPassword));
-    if (user) return { field: user, emailish: false };
-    // login dentro de un iframe hijo mismo-origen
-    for (const f of Array.from(doc.querySelectorAll("iframe"))) {
-      let child: Document | null = null;
-      try {
-        child = f.contentDocument;
-      } catch {
-        child = null;
-      }
-      const found = findLoginEmailField(child, depth + 1);
-      if (found) return found;
-    }
-  } catch {
-    /* cross-origin: sin acceso al documento */
-  }
-  return null;
-}
-
-/** escritura compatible con frameworks (React/Vue escuchan el setter nativo) */
-function setFieldValue(el: HTMLInputElement, value: string) {
-  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(el, value);
-  el.dispatchEvent(new Event("input", { bubbles: true }));
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-}
+/* (detección de formularios, relleno y captura de credenciales: services/autofill.ts) */
 
 /* escalera de carga por pestaña: motor propio → motor de respaldo → conexión directa → error honesto */
 type LadderPhase = "engine" | "engineRetry" | "direct" | "error";
@@ -254,9 +199,7 @@ export default function SafariApp({ win }: AppProps) {
   const [panel, setPanel] = useState<null | "bookmarks" | "history">(null);
   const [installOpen, setInstallOpen] = useState(false);
   const [installName, setInstallName] = useState("");
-  const [mailAddr, setMailAddr] = useState<string | null>(null);
-  const [loginDetected, setLoginDetected] = useState(false);
-  const dismissedLoginRef = useRef<string>("");
+  const [dismissedLoginUrl, setDismissedLoginUrl] = useState("");
 
   const ctrlRef = useRef<ScramjetControllerApi | null>(null);
   const framesRef = useRef<Map<string, ScramjetFrameApi>>(new Map());
@@ -267,6 +210,37 @@ export default function SafariApp({ win }: AppProps) {
   const activeRef = useRef(activeTab);
   tabsRef.current = tabs;
   activeRef.current = activeTab;
+
+  /* ---------------- asistente de acceso (autocompletado) ----------------
+     El hook sondea la pestaña activa: detecta formularios de inicio de
+     sesión (las páginas del motor son mismo-origen → DOM legible), ofrece
+     el CORREO VERIFICADO del perfil (AXC ID) y las contraseñas guardadas
+     de la bóveda (AES-256), y captura credenciales nuevas al enviar. */
+  const autofillCtxRef = useRef<AutofillCtx>({
+    getUrl: () => tabsRef.current[activeRef.current]?.url ?? "",
+    getDoc: () => {
+      const t = tabsRef.current[activeRef.current];
+      if (!t) return null;
+      try {
+        return iframeRefs.current.get(t.id)?.contentDocument ?? null;
+      } catch {
+        return null; // cross-origin (modo directo externo)
+      }
+    },
+  });
+  const assistant = useAutofillAssistant(autofillCtxRef);
+  const snap = assistant.snap;
+
+  /** documento del iframe de la pestaña activa (null si no es accesible) */
+  const activeDoc = useCallback((): Document | null => {
+    const t = tabsRef.current[activeRef.current];
+    if (!t) return null;
+    try {
+      return iframeRefs.current.get(t.id)?.contentDocument ?? null;
+    } catch {
+      return null;
+    }
+  }, []);
 
   const activeTabData = tabs[activeTab] ?? tabs[0];
   const tabId = activeTabData?.id;
@@ -655,72 +629,37 @@ export default function SafariApp({ win }: AppProps) {
     return () => clearInterval(iv);
   }, [pageSig, runPhase]);
 
-  /* ---------------- iniciar sesión con el correo de axcsOS ----------------
-     Cada 2,5 s se mira la pestaña ACTIVA (solo motor: las páginas del motor
-     son mismo-origen). Si la página pide un correo (o usuario+contraseña) y
-     el usuario tiene dirección de Mail, aparece el banner de relleno. */
-  useEffect(() => {
-    const iv = setInterval(() => {
-      const addr = mailAddress();
-      setMailAddr(addr);
-      const t = tabsRef.current[activeRef.current];
-      const eligible =
-        !!addr &&
-        !!t &&
-        !t.loading &&
-        !t.error &&
-        !t.direct &&
-        /^https?:/i.test(t.url) &&
-        !parseYouTubeUrl(t.url) &&
-        dismissedLoginRef.current !== t.url;
-      if (!eligible) {
-        setLoginDetected(false);
-        return;
-      }
-      let doc: Document | null | null = null;
-      try {
-        doc = iframeRefs.current.get(t!.id)?.contentDocument ?? null;
-      } catch {
-        doc = null;
-      }
-      const found = findLoginEmailField(doc);
-      setLoginDetected(!!found);
-    }, 2500);
-    return () => clearInterval(iv);
-  }, []);
+  /* ---------------- asistente de acceso: acciones ----------------
+     La detección corre en el hook (useAutofillAssistant); aquí viven las
+     acciones que Safari ofrece al usuario en el banner y la toolbar. */
 
-  /* rellena (o copia) el correo del usuario en la página activa */
+  /** rellena (o copia, si la página no lo permite) el correo del perfil */
   const doLoginFill = useCallback(() => {
-    const addr = mailAddress();
-    if (!addr) return;
-    const t = tabsRef.current[activeRef.current];
-    if (!t || !/^https?:/i.test(t.url)) return;
-    let doc: Document | null | null = null;
-    try {
-      doc = iframeRefs.current.get(t.id)?.contentDocument ?? null;
-    } catch {
-      doc = null;
-    }
-    const found = findLoginEmailField(doc);
-    if (found) {
-      setFieldValue(found.field, addr);
-      found.field.focus();
-      // si el formulario tiene contraseña, el foco pasa allí para terminar de entrar
-      try {
-        const pw = Array.from((found.field.ownerDocument ?? doc)?.querySelectorAll<HTMLInputElement>("input[type='password' i]") ?? []).find((i) => !i.disabled);
-        pw?.focus();
-      } catch {
-        /* ignore */
-      }
-      notify("safari", "Correo rellenado", `${addr} — escribe la contraseña para entrar`);
-      return;
-    }
-    // conexión directa (cross-origin): no se puede rellenar; se copia
+    const id = identityEmail();
+    if (!id) return;
+    if (assistant.fillIdentityEmail(activeDoc())) return;
+    // página sin campo accesible (o cross-origin): se copia al portapapeles
     navigator.clipboard
-      ?.writeText(addr)
+      ?.writeText(id.email)
       .then(() => notify("safari", "Correo copiado", "Esta página no permite relleno automático; pégalo con ⌘V"))
-      .catch(() => notify("safari", "Tu correo de axcsOS", addr));
-  }, [notify]);
+      .catch(() => notify("safari", "Tu correo de axcsOS", id.email));
+  }, [assistant, activeDoc, notify]);
+
+  /** rellena la credencial guardada del dominio (usuario + contraseña cifrada) */
+  const doFillSaved = useCallback(async () => {
+    const r = await assistant.fillSaved(activeDoc(), snap.host);
+    if (r === "filled") notify("safari", "Credencial rellenada", `${snap.savedUsername ?? snap.host} — pulsa Entrar cuando quieras`);
+    else if (r === "no-saved") notify("safari", "Sin contraseña guardada", `${snap.host} no tiene credenciales en axcsOS todavía`);
+    else notify("safari", "Formulario no accesible", "Esta página no permite el relleno automático");
+  }, [assistant, activeDoc, snap.host, snap.savedUsername, notify]);
+
+  /** rellena la credencial y pulsa el botón de entrar (solo con esta acción explícita) */
+  const doFillAndSubmit = useCallback(async () => {
+    const r = await assistant.fillAndSubmit(activeDoc(), snap.host);
+    if (r === "sent") notify("safari", "Entrando…", `Credencial de ${snap.host} enviada`);
+    else if (r === "filled") notify("safari", "Credencial rellenada", "La página no dejó pulsar su botón: pulsa tú el de entrar");
+    else if (r === "no-saved") notify("safari", "Sin contraseña guardada", `${snap.host} no tiene credenciales en axcsOS todavía`);
+  }, [assistant, activeDoc, snap.host, notify]);
 
   /* ---------------- instalar la página actual como app ---------------- */
   const canInstallPage = !!activeTabData && /^https?:/i.test(activeTabData.url) && !parseYouTubeUrl(activeTabData.url);
@@ -796,6 +735,23 @@ export default function SafariApp({ win }: AppProps) {
           ...(tab.direct ? { fNonce: Date.now() } : {}),
         });
         hangRef.current.set(id, { start: Date.now(), lastProgress: Date.now(), lastSig: "", direct: true, queue: ["engine", "engineRetry", "error"] });
+        addHistory(url, host);
+        return;
+      }
+
+      // páginas de la PROPIA máquina del usuario (localhost): el motor es remoto y
+      // no puede alcanzarlas → conexión directa inmediata (además mismo-origen si
+      // es este servidor: relleno y captura de credenciales completos)
+      if (/^(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0])(:\d+)?$/i.test(host)) {
+        patchTab(id, {
+          url,
+          title: host,
+          favicon: faviconFor(url),
+          loading: true,
+          error: undefined,
+          direct: true,
+        });
+        hangRef.current.set(id, { start: Date.now(), lastProgress: Date.now(), lastSig: "", direct: true, queue: ["error"] });
         addHistory(url, host);
         return;
       }
@@ -1123,12 +1079,25 @@ export default function SafariApp({ win }: AppProps) {
           </span>
         )}
         <button
-          onClick={() => (mailAddr ? doLoginFill() : openApp("mail"))}
-          className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-black/10 dark:hover:bg-white/10 ${mailAddr && loginDetected ? "text-[var(--accent-os)]" : "text-neutral-500 dark:text-neutral-400"}`}
-          title={mailAddr ? `Iniciar sesión con tu correo (${mailAddr}): rellena el campo de esta página` : "Crear tu correo de axcsOS para iniciar sesión en la web"}
+          onClick={() => (snap.identityEmail ? doLoginFill() : openApp("settings", { payload: { section: "account" } }))}
+          className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-black/10 dark:hover:bg-white/10 ${snap.identityEmail && snap.detected ? "text-[var(--accent-os)]" : "text-neutral-500 dark:text-neutral-400"}`}
+          title={
+            snap.identityEmail
+              ? `Rellenar tu correo (${snap.identityEmail}${snap.identityVerified ? " · verificado" : ""}) en esta página`
+              : "Añade tu correo en Ajustes → Cuenta (AXC ID) para que Safari rellene tus inicios de sesión"
+          }
         >
           <MailIconLucide size={14} />
         </button>
+        {snap.hasSaved && (
+          <button
+            onClick={() => void doFillSaved()}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-emerald-500 transition hover:bg-emerald-500/10"
+            title={`Contraseña guardada para ${snap.host}: rellenar usuario y contraseña`}
+          >
+            <KeyRound size={14} />
+          </button>
+        )}
         <button
           onClick={toggleBookmark}
           className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-black/10 dark:hover:bg-white/10 ${bookmarked ? "text-amber-400" : "text-neutral-500 dark:text-neutral-400"}`}
@@ -1165,24 +1134,84 @@ export default function SafariApp({ win }: AppProps) {
         </div>
       )}
 
-      {/* banner: esta página pide un correo para iniciar sesión */}
-      {mailAddr && loginDetected && !showStart && !showSearch && activeTabData && !activeTabData.loading && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--accent-os)]/20 bg-[var(--accent-os)]/[0.08] px-3 py-1.5 text-[11px]">
-          <MailIconLucide size={13} className="shrink-0 text-[var(--accent-os)]" />
+      {/* banner del asistente de acceso: credencial guardada / correo del perfil / guardar contraseña */}
+      {!showStart && !showSearch && activeTabData && !activeTabData.loading && dismissedLoginUrl !== activeTabData.url && (
+        <>
+          {/* credencial guardada para este sitio */}
+          {snap.detected && snap.hasSaved && !snap.signupLike && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-emerald-500/25 bg-emerald-500/[0.08] px-3 py-1.5 text-[11px]">
+              <KeyRound size={13} className="shrink-0 text-emerald-500" />
+              <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">
+                Tienes una cuenta guardada para <b className="text-neutral-800 dark:text-neutral-100">{snap.host}</b> —{" "}
+                {snap.savedUsername}
+              </span>
+              <button
+                onClick={() => void doFillAndSubmit()}
+                className="shrink-0 rounded-full bg-emerald-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
+              >
+                Entrar
+              </button>
+              <button
+                onClick={() => void doFillSaved()}
+                className="shrink-0 rounded-full bg-black/5 px-3 py-1 text-[11px] font-medium text-neutral-600 transition hover:bg-black/10 dark:bg-white/10 dark:text-neutral-300 dark:hover:bg-white/20"
+              >
+                Solo rellenar
+              </button>
+              <button
+                onClick={() => setDismissedLoginUrl(activeTabData.url)}
+                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10"
+              >
+                Ahora no
+              </button>
+            </div>
+          )}
+          {/* sin credencial: el correo del perfil (verificado AXC ID o @axcs.os) */}
+          {snap.detected && !(snap.hasSaved && !snap.signupLike) && snap.identityEmail && (
+            <div className="flex shrink-0 items-center gap-2 border-b border-[var(--accent-os)]/20 bg-[var(--accent-os)]/[0.08] px-3 py-1.5 text-[11px]">
+              <MailIconLucide size={13} className="shrink-0 text-[var(--accent-os)]" />
+              <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">
+                {snap.signupLike ? "Esta página registra cuentas" : "Esta página pide un correo para iniciar sesión"} — usa el tuyo:{" "}
+                <b className="text-neutral-800 dark:text-neutral-100">{snap.identityEmail}</b>
+                {snap.identityVerified && <span className="ml-1 text-[9.5px] font-semibold text-emerald-500">✓ verificado</span>}
+              </span>
+              <button
+                onClick={doLoginFill}
+                className="shrink-0 rounded-full bg-[var(--accent-os)] px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
+              >
+                Rellenar
+              </button>
+              <button
+                onClick={() => setDismissedLoginUrl(activeTabData.url)}
+                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10"
+              >
+                Ahora no
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* banner: ¿guardar la contraseña capturada en la bóveda? */}
+      {assistant.savePrompt && !showStart && !showSearch && assistant.savePrompt.host === snap.host && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/25 bg-amber-500/[0.08] px-3 py-1.5 text-[11px]">
+          <KeyRound size={13} className="shrink-0 text-amber-500" />
           <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">
-            Esta página pide un correo para iniciar sesión — usa el tuyo: <b className="text-neutral-800 dark:text-neutral-100">{mailAddr}</b>
+            ¿Guardar la contraseña de <b className="text-neutral-800 dark:text-neutral-100">{assistant.savePrompt.host}</b> ({assistant.savePrompt.username}) en axcsOS? Se cifra con AES-256 en este dispositivo.
           </span>
           <button
-            onClick={doLoginFill}
-            className="shrink-0 rounded-full bg-[var(--accent-os)] px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
+            onClick={() => void assistant.savePromptSave(assistant.savePrompt!)}
+            className="shrink-0 rounded-full bg-amber-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
           >
-            Rellenar
+            Guardar
           </button>
           <button
-            onClick={() => {
-              if (activeTabData) dismissedLoginRef.current = activeTabData.url;
-              setLoginDetected(false);
-            }}
+            onClick={() => assistant.savePromptNever(assistant.savePrompt!)}
+            className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10"
+          >
+            Nunca para este sitio
+          </button>
+          <button
+            onClick={() => assistant.dismissSavePrompt(assistant.savePrompt!.host)}
             className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10"
           >
             Ahora no

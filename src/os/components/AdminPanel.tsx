@@ -74,6 +74,8 @@ export default function AdminPanel() {
 
   useEffect(() => {
     if (!open) {
+      // cierre del panel: limpieza intencional al cambiar la condición (una vez por cierre)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setAdminPw("");
       setAdminErr("");
     }

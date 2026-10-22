@@ -53,7 +53,10 @@ export default function MailApp(_props: AppProps) {
 
   /* cuenta + servicio */
   useEffect(() => {
+    // lectura de localStorage tras el montaje (evita desajuste de hidratación):
+    // setState una sola vez al montar es intencional
     const acc = mailAddress();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAddress(acc);
     setReady(true);
     if (acc) mail?.start();

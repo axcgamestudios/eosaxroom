@@ -107,15 +107,26 @@ export function findVerifiedAccountIds(email: string): string[] {
     .map(([k]) => k);
 }
 
-/* ---------- códigos por correo ---------- */
+/* ---------- códigos por correo (API del servidor + respaldo) ----------
+   Flujo nuevo: /api/auth/send-otp y /api/auth/verify-otp (App Router).
+   El código se genera en el servidor, se guarda SOLO hasheado
+   (PBKDF2-SHA256) y se envía con Resend (si el servidor tiene
+   RESEND_API_KEY) o FormSubmit. Si el despliegue no puede servir
+   el API (GitHub Pages es estático), se usa el respaldo clásico:
+   envío directo desde el navegador del usuario con FormSubmit y
+   comprobación local del hash. Nunca se finge un envío. */
+
+import { appBase } from "../engine/scramjet";
 
 const SS_CODE = "axcsos.axcid.code";
+const SS_PENDING_EMAIL = "axcsos.axcid.pending";
+const SS_VIA = "axcsos.axcid.via"; // "api" | "local": por dónde se envió el último código
 const CODE_TTL = 10 * 60 * 1000; // 10 minutos
 const CODE_MAX_TRIES = 5;
 
 interface PendingCode {
   email: string;
-  h: string; // SHA-256 b64 del código
+  h: string; // SHA-256 b64 del código (solo para el respaldo local)
   exp: number;
   tries: number;
 }
@@ -128,22 +139,82 @@ async function sha256B64(text: string): Promise<string> {
   return btoa(s);
 }
 
+function otpEndpoint(path: string): string {
+  // despliegue propio con API (dev/servidor) o URL absoluta configurada
+  const base = process.env.NEXT_PUBLIC_OTP_API || `${appBase()}/api`;
+  return `${base}${path}`;
+}
+
+/** ¿el API de verificación está servida aquí? (Pages estático: no) */
+export async function otpApiAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch(otpEndpoint("/auth/send-otp"), { method: "GET", cache: "no-store" });
+    return res.status === 405; // el route responde 405 al GET cuando existe
+  } catch {
+    return false;
+  }
+}
+
 export interface SendResult {
   ok: boolean; // el correo salió del servicio
   sent: boolean; // el código quedó generado y pendiente (correo válido)
   detail: string;
+  /** por dónde se gestionó el código */
+  via: "api" | "local";
 }
 
-/**
- * Genera un código de 6 dígitas, lo registra (solo su hash) y lo envía
- * de verdad al correo con FormSubmit (https://formsubmit.co — gratuito,
- * sin cuenta; la PRIMERA vez pide activar un enlace desde el propio correo).
- */
+/** Envío del código: primero el API del servidor; si no existe o no pudo entregar, respaldo local (FormSubmit desde este navegador). */
 export async function sendEmailCode(email: string): Promise<SendResult> {
   const to = email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(to)) {
-    return { ok: false, sent: false, detail: "Escribe un correo válido (nombre@dominio.com)." };
+    return { ok: false, sent: false, detail: "Escribe un correo válido (nombre@dominio.com).", via: "local" };
   }
+  try {
+    sessionStorage.setItem(SS_PENDING_EMAIL, to);
+  } catch {
+    /* el respaldo local lo necesita; el API no */
+  }
+
+  // 1) API del servidor (hash PBKDF2 en base de datos + Resend/FormSubmit)
+  try {
+    const res = await fetch(otpEndpoint("/auth/send-otp"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: to }),
+    });
+    if (res.status === 404) {
+      // despliegue sin API (p. ej. GitHub Pages): respaldo local
+    } else {
+      const data = (await res.json().catch(() => null)) as { ok?: boolean; sent?: boolean; detail?: string } | null;
+      if (res.ok && data?.ok) {
+        try {
+          sessionStorage.setItem(SS_VIA, "api");
+        } catch {
+          /* ignore */
+        }
+        return { ok: true, sent: true, via: "api", detail: data?.detail ?? `Código enviado a ${to}.` };
+      }
+      if (res.status === 502) {
+        // el API existe pero el proveedor rechazó el envío desde el servidor:
+        // el código del servidor queda NO verificable → se intenta desde el
+        // navegador del usuario (IP residencial, FormSubmit la acepta)
+        const local = await sendEmailCodeLocal(to);
+        return local.ok || local.sent
+          ? local
+          : { ok: false, sent: false, via: "api", detail: `${data?.detail ?? "El servidor no pudo enviar el correo."} (tampoco el envío desde tu navegador: ${local.detail})` };
+      }
+      // validación / rate-limit / error del servidor: respuesta honesta del API
+      return { ok: false, sent: !!data?.sent, via: "api", detail: data?.detail ?? `El servidor respondió ${res.status}.` };
+    }
+  } catch {
+    /* sin conexión al API: respaldo local */
+  }
+
+  // 2) Respaldo local clásico (FormSubmit desde el navegador del usuario)
+  return sendEmailCodeLocal(to);
+}
+
+async function sendEmailCodeLocal(to: string): Promise<SendResult> {
   const code = String(100000 + Math.floor(Math.random() * 900000));
   const pending: PendingCode = {
     email: to,
@@ -153,8 +224,9 @@ export async function sendEmailCode(email: string): Promise<SendResult> {
   };
   try {
     sessionStorage.setItem(SS_CODE, JSON.stringify(pending));
+    sessionStorage.setItem(SS_VIA, "local");
   } catch {
-    return { ok: false, sent: false, detail: "Este navegador no permite guardar el código pendiente." };
+    return { ok: false, sent: false, detail: "Este navegador no permite guardar el código pendiente.", via: "local" };
   }
   // costura de pruebas: el código solo es visible en desarrollo (nunca en producción)
   if (process.env.NODE_ENV === "development") {
@@ -181,6 +253,7 @@ export async function sendEmailCode(email: string): Promise<SendResult> {
       return {
         ok: false,
         sent: true,
+        via: "local",
         detail: activation
           ? "Primera vez con este correo: abre el enlace de activación que te llegó y pide el código de nuevo."
           : `El envío falló esta vez: ${why}. Si te llegó un código anterior, puedes probarlo ahora.`,
@@ -190,17 +263,55 @@ export async function sendEmailCode(email: string): Promise<SendResult> {
     return {
       ok: true,
       sent: true,
+      via: "local",
       detail: activation
         ? "Revisa tu correo: la primera vez FormSubmit pide activar su enlace; luego pide el código de nuevo."
         : `Código enviado a ${to}. Revisa también el correo no deseado.`,
     };
   } catch {
-    return { ok: false, sent: true, detail: "Sin conexión con el servicio de envío (FormSubmit). Vuelve a intentarlo; si te llegó un código anterior, puedes probarlo." };
+    return { ok: false, sent: true, via: "local", detail: "Sin conexión con el servicio de envío (FormSubmit). Vuelve a intentarlo; si te llegó un código anterior, puedes probarlo." };
   }
 }
 
-/** Comprueba el código introducido contra el pendiente (hash + intentos + caducidad). */
+/** Comprueba el código contra la vía por la que se envió (API o local). */
 export async function checkEmailCode(code: string): Promise<{ ok: boolean; email?: string; detail?: string }> {
+  let pendingEmail = "";
+  let via = "";
+  try {
+    pendingEmail = sessionStorage.getItem(SS_PENDING_EMAIL) ?? "";
+    via = sessionStorage.getItem(SS_VIA) ?? "";
+  } catch {
+    pendingEmail = "";
+  }
+
+  // 1) el código lo gestiona el API del servidor
+  if (via === "api" && pendingEmail) {
+    try {
+      const res = await fetch(otpEndpoint("/auth/verify-otp"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: pendingEmail, code }),
+      });
+      if (res.status !== 404) {
+        const data = (await res.json().catch(() => null)) as { ok?: boolean; email?: string; detail?: string } | null;
+        if (res.ok && data?.ok) {
+          try {
+            sessionStorage.removeItem(SS_CODE);
+            sessionStorage.removeItem(SS_PENDING_EMAIL);
+            sessionStorage.removeItem(SS_VIA);
+          } catch {
+            /* ignore */
+          }
+          return { ok: true, email: data.email ?? pendingEmail };
+        }
+        return { ok: false, detail: data?.detail ?? "Código incorrecto." };
+      }
+    } catch {
+      /* API inalcanzable ahora: caer al pendiente local si existe */
+    }
+  }
+
+  // 2) respaldo local (hash + intentos + caducidad en sessionStorage)
   let pending: PendingCode | null = null;
   try {
     pending = JSON.parse(sessionStorage.getItem(SS_CODE) ?? "null") as PendingCode | null;
@@ -222,6 +333,8 @@ export async function checkEmailCode(code: string): Promise<{ ok: boolean; email
   }
   try {
     sessionStorage.removeItem(SS_CODE);
+    sessionStorage.removeItem(SS_PENDING_EMAIL);
+    sessionStorage.removeItem(SS_VIA);
   } catch {
     /* ignore */
   }
