@@ -15,6 +15,7 @@ import AppSwitcher from "@/os/components/AppSwitcher";
 import BootScreen from "@/os/components/BootScreen";
 import { LoginGate } from "@/os/components/LoginScreen";
 import AdminPanel from "@/os/components/AdminPanel";
+import { getMail, mailAddress } from "@/os/services/mail";
 
 export default function Page() {
   const stage = useOS((s) => s.stage);
@@ -24,6 +25,24 @@ export default function Page() {
   const glassIntensity = useOS((s) => s.settings.glassIntensity);
   const animSpeed = useOS((s) => s.settings.animSpeed);
   const reduceTransparency = useOS((s) => s.settings.reduceTransparency);
+
+  /* correo de axcsOS en segundo plano: si el usuario tiene dirección, el
+     buzón se mantiene conectado para recibir cartas con notificación real
+     aunque la app Mail esté cerrada (misma red MQTT que Mensajes) */
+  useEffect(() => {
+    if (stage !== "desktop") return;
+    if (!mailAddress()) return;
+    const mail = getMail();
+    mail.start();
+    const off = mail.onEvent((e) => {
+      if (e.type === "letter") {
+        useOS.getState().notify("mail", `Correo de ${e.letter.fromName || e.letter.from}`, e.letter.subject);
+      }
+    });
+    return () => {
+      off();
+    };
+  }, [stage]);
 
   /* apply theme + accent + liquid glass tuning */
   useEffect(() => {

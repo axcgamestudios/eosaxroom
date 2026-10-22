@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Search } from "lucide-react";
 import { useOS } from "../store";
-import { APPS } from "../registry";
+import { allApps } from "../registry";
 
 export default function Launchpad() {
   const open = useOS((s) => s.launchpadOpen);
@@ -12,7 +12,7 @@ export default function Launchpad() {
   const openApp = useOS((s) => s.openApp);
   const [q, setQ] = useState("");
 
-  const apps = APPS.filter(
+  const apps = allApps().filter(
     (a) => a.showInLaunchpad !== false && (!q.trim() || a.name.toLowerCase().includes(q.toLowerCase()))
   );
 

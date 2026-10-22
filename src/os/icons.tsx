@@ -526,3 +526,35 @@ export const YouTubeIcon: IconType = ({ className }) => (
     <path d="M27 23.5 L43 32 L27 40.5 Z" fill="#fff" />
   </svg>
 );
+
+/* Mail: sobre azul degradado estilo macOS */
+export const MailIcon: IconType = ({ className }) => (
+  <svg viewBox="0 0 64 64" className={className} aria-hidden>
+    <defs>
+      <linearGradient id="mailG" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stopColor="#38bdf8" />
+        <stop offset="1" stopColor="#1d4ed8" />
+      </linearGradient>
+    </defs>
+    <rect x="4" y="12" width="56" height="40" rx="10" fill="url(#mailG)" />
+    <path d="M8 20 L32 38 L56 20" fill="none" stroke="#fff" strokeWidth="4.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+/* App Store: los tres palos cruzados formando una A, sobre azul */
+export const AppStoreIcon: IconType = ({ className }) => (
+  <svg viewBox="0 0 64 64" className={className} aria-hidden>
+    <defs>
+      <linearGradient id="asG" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stopColor="#22d3ee" />
+        <stop offset="1" stopColor="#2563eb" />
+      </linearGradient>
+    </defs>
+    <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#asG)" />
+    <g stroke="#fff" strokeWidth="4.6" strokeLinecap="round" fill="none">
+      <path d="M22 44 L31 20" />
+      <path d="M42 44 L33 20" />
+      <path d="M26.5 36.5 L37.5 36.5" />
+    </g>
+  </svg>
+);

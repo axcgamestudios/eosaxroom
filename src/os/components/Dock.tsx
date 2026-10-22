@@ -4,13 +4,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useOS } from "../store";
 import { getAppDef } from "../registry";
 import { LaunchpadIcon, TrashIcon } from "../icons";
+import { useWebApps } from "../services/webapps";
 
 const DOCK_APPS = [
   "finder",
   "launchpad",
   "safari",
+  "appstore",
   "youtube",
   "messages",
+  "mail",
   "axcgames",
   "notes",
   "calculator",
@@ -77,6 +80,10 @@ export default function Dock() {
 
   const runningApps = new Set(windows.map((w) => w.appId));
 
+  // apps web instaladas (App Store / Safari): van al Dock con su propio grupo
+  const webApps = useWebApps();
+  const webAppIds = useMemo(() => webApps.map((m) => `webapp:${m.id}`), [webApps]);
+
   const activate = (appId: string) => {
     if (appId === "launchpad") {
       setLaunchpad(true);
@@ -107,7 +114,7 @@ export default function Dock() {
     return s;
   };
 
-  const items = [...DOCK_APPS, "trash"];
+  const items = [...DOCK_APPS, ...webAppIds, "trash"];
 
   return (
     <div
@@ -129,15 +136,16 @@ export default function Dock() {
       >
         {items.map((appId) => {
           const def = appId === "launchpad" ? null : getAppDef(appId);
-          const Icon = appId === "launchpad" ? LaunchpadIcon : appId === "trash" ? TrashIcon : def!.icon;
+          const Icon = appId === "launchpad" ? LaunchpadIcon : appId === "trash" ? TrashIcon : def?.icon ?? TrashIcon;
           const label =
-            appId === "launchpad" ? "Launchpad" : appId === "trash" ? "Papelera" : def!.name;
+            appId === "launchpad" ? "Launchpad" : appId === "trash" ? "Papelera" : def?.name ?? appId;
+          if (!Icon) return null;
           const s = scaleFor(appId);
           const isRunning = appId !== "trash" && appId !== "launchpad" && runningApps.has(appId);
           const bouncingNow = bounceIds.includes(appId);
           return (
             <div key={appId} className="flex items-end">
-              {appId === "trash" && (
+              {(appId === "trash" || appId.startsWith("webapp:")) && (
                 <span className="mx-[5px] mb-4 h-10 w-[1px] shrink-0 rounded bg-black/15 dark:bg-white/20" />
               )}
               <div className="relative flex flex-col items-center">

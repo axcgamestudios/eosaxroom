@@ -11,6 +11,8 @@ import {
   History as HistoryIcon,
   Home,
   Lock,
+  Mail as MailIconLucide,
+  MonitorDown,
   Plus,
   RotateCw,
   Search,
@@ -38,6 +40,9 @@ import {
   type ScramjetControllerApi,
   type ScramjetFrameApi,
 } from "../engine/scramjet";
+import { findWebAppByUrl, installWebApp } from "../services/webapps";
+import { mailAddress } from "../services/mail";
+import { looksLikeErrorPage } from "../engine/pageload";
 
 /* ============================================================
    Safari axcsOS v4 — motor real Scramjet (SW + wisp)
@@ -136,17 +141,68 @@ function rememberDirectOk(host: string): void {
   }
 }
 
-/* ¿el motor entregó una página de error del servidor (403/Access Denied,
-   desafío anti-bot…)? Esas páginas NO cuentan como carga real: la escalera sigue. */
-function looksLikeErrorPage(doc: Document | null | undefined): boolean {
+/* (detección de páginas de error compartida: ../engine/pageload.ts) */
+
+/* ---------- iniciar sesión con el correo de axcsOS ----------
+   Las páginas servidas por el motor son MISMO ORIGEN: Safari puede leer su
+   DOM, detectar formularios de acceso con campo de correo y RELLENARLOS de
+   verdad con la dirección de Mail del usuario. En modo directo (cross-origin)
+   el relleno automático no es posible: se copia al portapapeles. Nunca se
+   finge una capacidad que no existe. */
+
+const NON_TEXT_TYPES = new Set(["hidden", "checkbox", "radio", "button", "submit", "file", "range", "color", "image", "number"]);
+
+function fieldMeta(el: HTMLInputElement): string {
+  return `${el.name ?? ""} ${el.id ?? ""} ${el.placeholder ?? ""} ${el.getAttribute("autocomplete") ?? ""} ${el.getAttribute("aria-label") ?? ""}`.toLowerCase();
+}
+
+/** ¿un campo que espera un correo? */
+function isEmailField(el: HTMLInputElement): boolean {
+  const t = (el.getAttribute("type") ?? "text").toLowerCase();
+  if (NON_TEXT_TYPES.has(t) || el.disabled || el.readOnly) return false;
+  if (t === "email" || el.autocomplete?.includes("email")) return true;
+  return /e-?mail|correo/.test(fieldMeta(el));
+}
+
+/** en formularios usuario+contraseña, el campo de usuario (le vale un correo) */
+function isUserField(el: HTMLInputElement, hasPassword: boolean): boolean {
+  if (!hasPassword) return false;
+  const t = (el.getAttribute("type") ?? "text").toLowerCase();
+  if (NON_TEXT_TYPES.has(t) || t === "password" || el.disabled || el.readOnly) return false;
+  return /user|usuario|cuenta|login|nick/.test(fieldMeta(el));
+}
+
+function findLoginEmailField(doc: Document | null | undefined, depth = 0): { field: HTMLInputElement; emailish: boolean } | null {
+  if (!doc || depth > 1) return null;
   try {
-    if (!doc || !doc.body) return false;
-    if (doc.getElementsByTagName("*").length > 30) return false; // página con contenido real
-    const txt = `${doc.title ?? ""} ${doc.body.innerText ?? ""}`.toLowerCase();
-    return /access denied|forbidden|error 40[0-9]|40[0-9] error|just a moment|attention required|not found|no se encontr|internal server error|bad gateway|service unavailable/.test(txt);
+    const inputs = Array.from(doc.querySelectorAll<HTMLInputElement>("input"));
+    const email = inputs.find(isEmailField);
+    if (email) return { field: email, emailish: true };
+    const hasPassword = inputs.some((i) => (i.getAttribute("type") ?? "").toLowerCase() === "password");
+    const user = inputs.find((i) => isUserField(i, hasPassword));
+    if (user) return { field: user, emailish: false };
+    // login dentro de un iframe hijo mismo-origen
+    for (const f of Array.from(doc.querySelectorAll("iframe"))) {
+      let child: Document | null = null;
+      try {
+        child = f.contentDocument;
+      } catch {
+        child = null;
+      }
+      const found = findLoginEmailField(child, depth + 1);
+      if (found) return found;
+    }
   } catch {
-    return false; // cross-origin o sin documento: no es una página de error legible
+    /* cross-origin: sin acceso al documento */
   }
+  return null;
+}
+
+/** escritura compatible con frameworks (React/Vue escuchan el setter nativo) */
+function setFieldValue(el: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(el, value);
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
 /* escalera de carga por pestaña: motor propio → motor de respaldo → conexión directa → error honesto */
@@ -196,6 +252,11 @@ export default function SafariApp({ win }: AppProps) {
   const [address, setAddress] = useState("");
   const [engineDiag, setEngineDiag] = useState<EngineDiagnostics>(getDiagnostics());
   const [panel, setPanel] = useState<null | "bookmarks" | "history">(null);
+  const [installOpen, setInstallOpen] = useState(false);
+  const [installName, setInstallName] = useState("");
+  const [mailAddr, setMailAddr] = useState<string | null>(null);
+  const [loginDetected, setLoginDetected] = useState(false);
+  const dismissedLoginRef = useRef<string>("");
 
   const ctrlRef = useRef<ScramjetControllerApi | null>(null);
   const framesRef = useRef<Map<string, ScramjetFrameApi>>(new Map());
@@ -594,6 +655,99 @@ export default function SafariApp({ win }: AppProps) {
     return () => clearInterval(iv);
   }, [pageSig, runPhase]);
 
+  /* ---------------- iniciar sesión con el correo de axcsOS ----------------
+     Cada 2,5 s se mira la pestaña ACTIVA (solo motor: las páginas del motor
+     son mismo-origen). Si la página pide un correo (o usuario+contraseña) y
+     el usuario tiene dirección de Mail, aparece el banner de relleno. */
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const addr = mailAddress();
+      setMailAddr(addr);
+      const t = tabsRef.current[activeRef.current];
+      const eligible =
+        !!addr &&
+        !!t &&
+        !t.loading &&
+        !t.error &&
+        !t.direct &&
+        /^https?:/i.test(t.url) &&
+        !parseYouTubeUrl(t.url) &&
+        dismissedLoginRef.current !== t.url;
+      if (!eligible) {
+        setLoginDetected(false);
+        return;
+      }
+      let doc: Document | null | null = null;
+      try {
+        doc = iframeRefs.current.get(t!.id)?.contentDocument ?? null;
+      } catch {
+        doc = null;
+      }
+      const found = findLoginEmailField(doc);
+      setLoginDetected(!!found);
+    }, 2500);
+    return () => clearInterval(iv);
+  }, []);
+
+  /* rellena (o copia) el correo del usuario en la página activa */
+  const doLoginFill = useCallback(() => {
+    const addr = mailAddress();
+    if (!addr) return;
+    const t = tabsRef.current[activeRef.current];
+    if (!t || !/^https?:/i.test(t.url)) return;
+    let doc: Document | null | null = null;
+    try {
+      doc = iframeRefs.current.get(t.id)?.contentDocument ?? null;
+    } catch {
+      doc = null;
+    }
+    const found = findLoginEmailField(doc);
+    if (found) {
+      setFieldValue(found.field, addr);
+      found.field.focus();
+      // si el formulario tiene contraseña, el foco pasa allí para terminar de entrar
+      try {
+        const pw = Array.from((found.field.ownerDocument ?? doc)?.querySelectorAll<HTMLInputElement>("input[type='password' i]") ?? []).find((i) => !i.disabled);
+        pw?.focus();
+      } catch {
+        /* ignore */
+      }
+      notify("safari", "Correo rellenado", `${addr} — escribe la contraseña para entrar`);
+      return;
+    }
+    // conexión directa (cross-origin): no se puede rellenar; se copia
+    navigator.clipboard
+      ?.writeText(addr)
+      .then(() => notify("safari", "Correo copiado", "Esta página no permite relleno automático; pégalo con ⌘V"))
+      .catch(() => notify("safari", "Tu correo de axcsOS", addr));
+  }, [notify]);
+
+  /* ---------------- instalar la página actual como app ---------------- */
+  const canInstallPage = !!activeTabData && /^https?:/i.test(activeTabData.url) && !parseYouTubeUrl(activeTabData.url);
+
+  const openInstall = useCallback(() => {
+    const t = tabsRef.current[activeRef.current];
+    if (!t || !/^https?:/i.test(t.url) || parseYouTubeUrl(t.url)) return;
+    const base = t.title && t.title !== hostOf(t.url) ? t.title : hostOf(t.url);
+    setInstallName(base.slice(0, 40));
+    setInstallOpen(true);
+  }, []);
+
+  const confirmInstall = useCallback(() => {
+    const t = tabsRef.current[activeRef.current];
+    if (!t || !/^https?:/i.test(t.url)) return;
+    const r = installWebApp({ url: t.url, name: installName });
+    setInstallOpen(false);
+    if (r.manifest) {
+      notify("safari", `${r.manifest.name} instalada`, "App nativa añadida: está en Launchpad, el Dock y Spotlight");
+      openApp(`webapp:${r.manifest.id}`);
+    } else {
+      notify("safari", "No se pudo instalar", "Prueba de nuevo en unos segundos");
+    }
+  }, [installName, notify, openApp]);
+
+  const installTargetInstalled = installOpen && activeTabData ? findWebAppByUrl(activeTabData.url) : undefined;
+
   const navigateTab = useCallback(
     async (id: string, rawUrl: string, opts?: { push?: boolean }) => {
       const push = opts?.push !== false;
@@ -839,7 +993,7 @@ export default function SafariApp({ win }: AppProps) {
   const showSearch = activeTabData?.url.startsWith(SEARCH_PREFIX) ?? false;
 
   return (
-    <div className="flex h-full flex-col bg-white dark:bg-neutral-950" onKeyDown={onKeyDownShell}>
+    <div className="relative flex h-full flex-col bg-white dark:bg-neutral-950" onKeyDown={onKeyDownShell}>
       {/* banner de error del motor */}
       {engineError && (
         <div className="flex items-center gap-2 border-b border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-600 dark:text-rose-300">
@@ -969,11 +1123,32 @@ export default function SafariApp({ win }: AppProps) {
           </span>
         )}
         <button
+          onClick={() => (mailAddr ? doLoginFill() : openApp("mail"))}
+          className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-black/10 dark:hover:bg-white/10 ${mailAddr && loginDetected ? "text-[var(--accent-os)]" : "text-neutral-500 dark:text-neutral-400"}`}
+          title={mailAddr ? `Iniciar sesión con tu correo (${mailAddr}): rellena el campo de esta página` : "Crear tu correo de axcsOS para iniciar sesión en la web"}
+        >
+          <MailIconLucide size={14} />
+        </button>
+        <button
           onClick={toggleBookmark}
           className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-black/10 dark:hover:bg-white/10 ${bookmarked ? "text-amber-400" : "text-neutral-500 dark:text-neutral-400"}`}
           title={bookmarked ? "Quitar marcador" : "Añadir marcador"}
         >
           <Star size={14} fill={bookmarked ? "currentColor" : "none"} />
+        </button>
+        <button
+          onClick={openInstall}
+          disabled={!canInstallPage}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/10 disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-white/10"
+          title={
+            !canInstallPage
+              ? activeTabData && parseYouTubeUrl(activeTabData.url)
+                ? "YouTube ya es una app nativa de axcsOS (está en el Dock)"
+                : "Navega a una página para poder instalarla como app"
+              : "Instalar esta página como app de axcsOS"
+          }
+        >
+          <MonitorDown size={14} />
         </button>
         <button
           onClick={() => openApp("downloads")}
@@ -987,6 +1162,95 @@ export default function SafariApp({ win }: AppProps) {
       {activeTabData?.loading && (
         <div className="h-0.5 shrink-0 overflow-hidden bg-transparent">
           <div className="animate-progress h-full w-1/3 rounded-full bg-[var(--accent-os)]" />
+        </div>
+      )}
+
+      {/* banner: esta página pide un correo para iniciar sesión */}
+      {mailAddr && loginDetected && !showStart && !showSearch && activeTabData && !activeTabData.loading && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--accent-os)]/20 bg-[var(--accent-os)]/[0.08] px-3 py-1.5 text-[11px]">
+          <MailIconLucide size={13} className="shrink-0 text-[var(--accent-os)]" />
+          <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">
+            Esta página pide un correo para iniciar sesión — usa el tuyo: <b className="text-neutral-800 dark:text-neutral-100">{mailAddr}</b>
+          </span>
+          <button
+            onClick={doLoginFill}
+            className="shrink-0 rounded-full bg-[var(--accent-os)] px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
+          >
+            Rellenar
+          </button>
+          <button
+            onClick={() => {
+              if (activeTabData) dismissedLoginRef.current = activeTabData.url;
+              setLoginDetected(false);
+            }}
+            className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10"
+          >
+            Ahora no
+          </button>
+        </div>
+      )}
+
+      {/* diálogo: instalar la página como app */}
+      {installOpen && activeTabData && /^https?:/i.test(activeTabData.url) && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/25 backdrop-blur-[2px]" onMouseDown={() => setInstallOpen(false)}>
+          <div
+            className="glass lg-specular w-[min(92%,400px)] rounded-2xl p-5 shadow-2xl"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center gap-2">
+              <MonitorDown size={14} className="text-[var(--accent-os)]" />
+              <h3 className="flex-1 text-[14px] font-semibold">Instalar como app</h3>
+              <button onClick={() => setInstallOpen(false)} className="rounded p-1 text-neutral-400 transition hover:bg-black/10 dark:hover:bg-white/10">
+                <X size={13} />
+              </button>
+            </div>
+            <div className="mb-3 flex items-center gap-3 rounded-xl bg-white/70 p-3 shadow-sm ring-1 ring-black/5 dark:bg-white/5 dark:ring-white/10">
+              {activeTabData.favicon ? (
+                <img src={activeTabData.favicon} alt="" className="h-10 w-10 shrink-0 rounded-[9px] bg-white" onError={(e) => ((e.target as HTMLImageElement).style.visibility = "hidden")} />
+              ) : (
+                <Globe size={26} className="shrink-0 text-neutral-400" />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[12.5px] font-semibold">{activeTabData.title || hostOf(activeTabData.url)}</div>
+                <div className="truncate text-[10.5px] text-neutral-400">{activeTabData.url}</div>
+              </div>
+            </div>
+            <label className="mb-1 block text-[11px] font-medium text-neutral-500 dark:text-neutral-400">Nombre de la app</label>
+            <input
+              autoFocus
+              value={installName}
+              onChange={(e) => setInstallName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !installTargetInstalled && confirmInstall()}
+              className="os-input mb-3 w-full rounded-lg bg-white/80 px-3 py-2 text-[13px] shadow-sm ring-1 ring-black/5 outline-none focus:ring-2 focus:ring-[var(--accent-os)]/50 dark:bg-neutral-800/80 dark:ring-white/10"
+            />
+            <p className="mb-3 text-[10.5px] leading-relaxed text-neutral-400">
+              La página se convertirá en una app nativa de axcsOS: ventana propia con el motor de navegación dentro,
+              accesible desde Launchpad, el Dock y Spotlight.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setInstallOpen(false)} className="rounded-lg bg-black/5 px-3.5 py-1.5 text-[12px] font-medium transition hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20">
+                Cancelar
+              </button>
+              {installTargetInstalled ? (
+                <button
+                  onClick={() => {
+                    setInstallOpen(false);
+                    openApp(`webapp:${installTargetInstalled.id}`);
+                  }}
+                  className="rounded-lg bg-emerald-500/15 px-3.5 py-1.5 text-[12px] font-semibold text-emerald-600 transition hover:bg-emerald-500/25 dark:text-emerald-400"
+                >
+                  Ya instalada — Abrir
+                </button>
+              ) : (
+                <button
+                  onClick={confirmInstall}
+                  className="rounded-lg bg-[var(--accent-os)] px-3.5 py-1.5 text-[12px] font-semibold text-white shadow transition hover:opacity-90"
+                >
+                  Instalar
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Search } from "lucide-react";
 import { useOS } from "../store";
-import { APPS } from "../registry";
+import { allApps } from "../registry";
 import { DocIcon, ImageDocIcon } from "../icons";
 
 function tryMath(q: string): string | null {
@@ -44,10 +44,11 @@ function SpotlightPanel({ onClose }: { onClose: () => void }) {
     if (!q.trim()) return [];
     const lower = q.toLowerCase();
     const list: ResultItem[] = [];
-    APPS.filter((a) => a.showInLaunchpad !== false && a.name.toLowerCase().includes(lower))
+    allApps()
+      .filter((a) => a.showInLaunchpad !== false && a.name.toLowerCase().includes(lower))
       .slice(0, 5)
       .forEach((a) =>
-        list.push({ id: `app-${a.id}`, title: a.name, sub: "Aplicación", icon: a.icon, run: () => openApp(a.id) })
+        list.push({ id: `app-${a.id}`, title: a.name, sub: a.id.startsWith("webapp:") ? "App instalada" : "Aplicación", icon: a.icon, run: () => openApp(a.id) })
       );
     notes
       .filter((n) => n.title.toLowerCase().includes(lower) || n.content.toLowerCase().includes(lower))

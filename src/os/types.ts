@@ -146,3 +146,20 @@ export type WindowOpenOptions = {
   payload?: Record<string, unknown>;
   center?: boolean;
 };
+
+/* ---------- apps web instaladas (páginas como apps nativas) ---------- */
+
+/** Una página web instalada como app nativa de axcsOS. */
+export interface WebAppManifest {
+  /** identificador estable: slug del host (+ruta si hace falta) */
+  id: string;
+  /** nombre visible (editable al instalar) */
+  name: string;
+  /** URL real de la app */
+  url: string;
+  /** host de origen (para iconos e info) */
+  host: string;
+  /** favicon (servicio público DuckDuckGo); vacío → mosaico con letra */
+  icon?: string;
+  installedAt: number;
+}

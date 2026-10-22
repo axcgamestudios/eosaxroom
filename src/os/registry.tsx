@@ -1,6 +1,6 @@
 "use client";
 
-import type { AppDef, MenuDef } from "./types";
+import type { AppDef, MenuDef, WebAppManifest } from "./types";
 import {
   AxcGamesIcon,
   CalculatorIcon,
@@ -19,6 +19,8 @@ import {
   SettingsLogoIcon,
   MessagesIcon,
   YouTubeIcon,
+  MailIcon,
+  AppStoreIcon,
 } from "./icons";
 import AxcGamesApp from "./apps/AxcGames";
 import SafariApp from "./apps/Safari";
@@ -33,6 +35,10 @@ import AboutApp from "./apps/AboutMac";
 import DownloadsApp from "./apps/Downloads";
 import MessagesApp from "./apps/Messages";
 import YouTubeApp from "./apps/YouTube";
+import MailApp from "./apps/Mail";
+import AppStoreApp from "./apps/AppStore";
+import WebAppFrame from "./apps/WebAppFrame";
+import { findWebAppById, listWebApps, tileGradientFor, WEBAPP_PREFIX } from "./services/webapps";
 
 const fileMenu: MenuDef = {
   title: "Archivo",
@@ -143,6 +149,33 @@ export const APPS: AppDef[] = [
       windowMenu,
       helpMenu,
     ],
+  },
+  {
+    id: "mail",
+    name: "Mail",
+    icon: MailIcon,
+    component: MailApp,
+    defaultSize: { w: 900, h: 580 },
+    minSize: { w: 680, h: 400 },
+    showInDock: true,
+    showInLaunchpad: true,
+    menus: [
+      fileMenu,
+      editMenu,
+      windowMenu,
+      helpMenu,
+    ],
+  },
+  {
+    id: "appstore",
+    name: "App Store",
+    icon: AppStoreIcon,
+    component: AppStoreApp,
+    defaultSize: { w: 940, h: 620 },
+    minSize: { w: 640, h: 420 },
+    showInDock: true,
+    showInLaunchpad: true,
+    menus: [fileMenu, editMenu, windowMenu, helpMenu],
   },
   {
     id: "youtube",
@@ -263,6 +296,85 @@ export const APPS: AppDef[] = [
   },
 ];
 
+/* ============================================================
+   Apps web instaladas — páginas como apps nativas del sistema
+   (App Store o Safari → Instalar como app). Se registran en
+   vivo: aparecen en Dock, Launchpad y Spotlight al instante.
+   ============================================================ */
+
+export { WEBAPP_PREFIX };
+
+/* icono de una app instalada: mosaico con gradiente + favicon real */
+const webAppIconCache = new Map<string, AppDef["icon"]>();
+
+function webAppIcon(m: WebAppManifest): AppDef["icon"] {
+  const hit = webAppIconCache.get(m.id);
+  if (hit) return hit;
+  const letter = (m.name || "?").trim()[0]?.toUpperCase() ?? "?";
+  const Icon = ({ className }: { className?: string }) => (
+    <span
+      className={`flex items-center justify-center overflow-hidden rounded-[22%] shadow-sm ring-1 ring-black/10 dark:ring-white/15 ${className ?? ""}`}
+      style={{ background: tileGradientFor(m.url || m.host) }}
+    >
+      <img
+        src={m.icon || ""}
+        alt=""
+        className="h-full w-full bg-white object-contain p-[14%]"
+        onError={(e) => {
+          const img = e.target as HTMLImageElement;
+          img.style.display = "none";
+          const sib = img.nextElementSibling as HTMLElement | null;
+          if (sib) sib.style.display = "";
+        }}
+      />
+      <span className="hidden font-bold text-white" style={{ fontSize: "42%" }}>
+        {letter}
+      </span>
+    </span>
+  );
+  webAppIconCache.set(m.id, Icon);
+  return Icon;
+}
+
+const webAppMenu: MenuDef[] = [
+  {
+    title: "Archivo",
+    items: [
+      { separator: true },
+      { label: "Cerrar ventana", shortcut: "⌘W", action: "close" },
+    ],
+  },
+  editMenu,
+  windowMenu,
+  helpMenu,
+];
+
+/** AppDef sintetizado de una app web instalada. */
+export function webAppDef(m: WebAppManifest): AppDef {
+  return {
+    id: `${WEBAPP_PREFIX}${m.id}`,
+    name: m.name,
+    icon: webAppIcon(m),
+    component: WebAppFrame,
+    defaultSize: { w: 980, h: 660 },
+    minSize: { w: 420, h: 320 },
+    singleInstance: true,
+    showInDock: true,
+    showInLaunchpad: true,
+    menus: webAppMenu,
+  };
+}
+
+/** Todas las apps del sistema: nativas + web instaladas (para Launchpad/Spotlight/Dock). */
+export function allApps(): AppDef[] {
+  const web = listWebApps().map(webAppDef);
+  return [...APPS, ...web];
+}
+
 export function getAppDef(id: string): AppDef | undefined {
+  if (id.startsWith(WEBAPP_PREFIX)) {
+    const m = findWebAppById(id.slice(WEBAPP_PREFIX.length));
+    return m ? webAppDef(m) : undefined;
+  }
   return APPS.find((a) => a.id === id);
 }
