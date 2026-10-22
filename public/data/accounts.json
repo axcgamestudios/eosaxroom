@@ -36,6 +36,13 @@
       "salt": "2Qt20dIoXa+2v3ewwj3GIA==",
       "hash": "JCBQrFNBM+rkGnNeThXEAVYlM1VINUU3mB0hR4+NmHo=",
       "created": "2026-10-22T00:16:34.065Z"
+    },
+    {
+      "id": "acc-mvism1t7i54c9",
+      "username": "adan",
+      "salt": "hT63q9GMzKArsZPXiwcW2Q==",
+      "hash": "6AIZOIB2AumMyl44b36yknHHy63lQtfRZ0yKWMZhaig=",
+      "created": "2026-10-22T00:18:31.723Z"
     }
   ]
 }
