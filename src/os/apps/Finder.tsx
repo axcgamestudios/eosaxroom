@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock,
   Download,
+  FolderPlus,
   HardDrive,
   Image as ImageIcon,
   LayoutGrid,
@@ -18,94 +19,12 @@ import type { AppProps } from "../types";
 import { useOS } from "../store";
 import { APPS } from "../registry";
 import { FolderIcon, HDIcon } from "../icons";
+import { useFs, listFolder, createFolder as fsCreateFolder, type FsNode } from "../services/fs";
 
 type NodeType = "folder" | "txt" | "image" | "app";
 
-interface FsNode {
-  name: string;
-  type: NodeType;
-  children?: FsNode[];
-  content?: string;
-  image?: string;
-  appId?: string;
-  size?: string;
-}
-
-const TXT_README = `axcsOS 1.0 "Liquid Glass"
-=============================
-
-Este sistema operativo web incluye:
-
-• App AXCGAMES — portal con 21+ juegos
-• Finder, Safari, Notas, Calculadora, Terminal
-• Ajustes del Sistema con fondos y acentos
-• Spotlight (⌘Espacio) y ⌘Tab
-
-Consejo: todo se guarda en tu navegador.
-Si algo se ve raro, cierra sesión y vuelve a entrar.`;
-
-const TXT_NOTAS = `Lista de la compra
-------------------
-• Café de especialidad
-• Teclado mecánico silencioso
-• Un MacBook con macOS 27`;
-
-const TXT_APUNTES = `Apuntes — Historia de la informática
-
-1984  Macintosh original
-2001  Mac OS X 10.0 Cheetah
-2025  macOS 26 Tahoe (Liquid Glass)
-2026  axcsOS 1.0 — esta demo web 🍐`;
-
-const ROOT: FsNode = {
-  name: "Macintosh HD",
-  type: "folder",
-  children: [
-    {
-      name: "Escritorio",
-      type: "folder",
-      children: [
-        { name: "LÉEME.txt", type: "txt", content: TXT_README, size: "1 KB" },
-        { name: "Lista de la compra.txt", type: "txt", content: TXT_NOTAS, size: "1 KB" },
-      ],
-    },
-    {
-      name: "Documentos",
-      type: "folder",
-      children: [
-        {
-          name: "Universidad",
-          type: "folder",
-          children: [{ name: "Apuntes.txt", type: "txt", content: TXT_APUNTES, size: "2 KB" }],
-        },
-        { name: "Presupuesto.txt", type: "txt", content: "Ordenador nuevo: 2.199 €\nCafé: 12 €\nTotal: dormir menos, programar más.", size: "1 KB" },
-      ],
-    },
-    {
-      name: "Descargas",
-      type: "folder",
-      children: [
-        { name: "captura-mac-web.png", type: "image", image: "wallpapers/tahoe-dark.png", size: "1,8 MB" },
-        { name: "fondo-sequoia.png", type: "image", image: "wallpapers/sequoia.png", size: "2,1 MB" },
-      ],
-    },
-    {
-      name: "Imágenes",
-      type: "folder",
-      children: [
-        { name: "Tahoe Oscuro.png", type: "image", image: "wallpapers/tahoe-dark.png", size: "2,4 MB" },
-        { name: "Tahoe Claro.png", type: "image", image: "wallpapers/tahoe-light.png", size: "2,2 MB" },
-        { name: "Sequoia.png", type: "image", image: "wallpapers/sequoia.png", size: "2,1 MB" },
-        { name: "Sonoma.png", type: "image", image: "wallpapers/sonoma.png", size: "2,0 MB" },
-      ],
-    },
-    {
-      name: "Aplicaciones",
-      type: "folder",
-      children: [], // built lazily from APPS (avoids import cycle at module evaluation)
-    },
-  ],
-};
+/* El árbol de archivos es REAL y compartido con el escritorio y TextEdit
+   (services/fs.ts): lo que se crea en el escritorio aparece aquí y al revés. */
 
 /** children for the Aplicaciones folder, resolved lazily */
 function appsChildren(): FsNode[] {
@@ -138,6 +57,7 @@ export default function FinderApp({ win }: AppProps) {
   const openApp = useOS((s) => s.openApp);
   const notify = useOS((s) => s.notify);
   const isTrash = win.payload?.location === "trash";
+  const fsTree = useFs(); // re-renderiza al mutar el sistema de archivos
 
   const [stack, setStack] = useState<{ path: string[]; view: "grid" | "list" }[]>([
     { path: isTrash ? [] : win.payload?.path ? (win.payload.path as string[]) : ["Escritorio"], view: "grid" },
@@ -169,22 +89,27 @@ export default function FinderApp({ win }: AppProps) {
         ? appsChildren().filter((n) => n.name.toLowerCase().includes(query.toLowerCase()))
         : appsChildren();
     }
-    let list: FsNode[] = current.path.length === 0 ? ROOT.children ?? [] : [];
-    for (const seg of current.path) {
-      const found = list.find((n) => n.name === seg && n.type === "folder");
-      list = found?.children ?? [];
-    }
+    // raíz: carpetas reales del FS + la carpeta virtual Aplicaciones
+    const real: FsNode[] = listFolder(current.path);
+    const list = current.path.length === 0 ? [{ name: "Aplicaciones", type: "folder" as NodeType, children: [] }, ...real] : real;
     if (!query.trim()) return list;
     return list.filter((n) => n.name.toLowerCase().includes(query.toLowerCase()));
-  }, [current.path, query, isTrash]);
+    // fsTree: dependencia "invisible" — listFolder lee el caché vivo del servicio
+  }, [current.path, query, isTrash, fsTree]);
 
   const open = (node: FsNode) => {
     if (node.type === "folder") navigateTo([...current.path, node.name]);
     else if (node.type === "txt")
-      openApp("textedit", { title: node.name, payload: { fileName: node.name, content: node.content } });
+      openApp("textedit", { title: node.name, payload: { fileName: node.name, content: node.content, folderPath: current.path } });
     else if (node.type === "image")
       openApp("preview", { title: node.name, payload: { image: node.image, fileName: node.name } });
     else if (node.type === "app" && node.appId) openApp(node.appId);
+  };
+
+  const newFolderHere = () => {
+    if (isTrash || current.path.join("/") === "Aplicaciones") return;
+    const name = fsCreateFolder(current.path);
+    if (name) notify("finder", "Carpeta creada", `“${name}” se creó en ${title}.`);
   };
 
   const title = isTrash ? "Papelera" : current.path.length ? current.path[current.path.length - 1] : "Macintosh HD";
@@ -287,6 +212,15 @@ export default function FinderApp({ win }: AppProps) {
             {title}
           </h2>
           <div className="flex-1" />
+          {!isTrash && current.path.join("/") !== "Aplicaciones" && (
+            <button
+              onClick={newFolderHere}
+              title="Nueva carpeta"
+              className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-neutral-500 transition hover:bg-black/8 dark:text-neutral-300 dark:hover:bg-white/10"
+            >
+              <FolderPlus size={13} /> Nueva carpeta
+            </button>
+          )}
           <div className="flex items-center gap-0.5 rounded-md p-0.5">
             <button
               onClick={() => setView("grid")}

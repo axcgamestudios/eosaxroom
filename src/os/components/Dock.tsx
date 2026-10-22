@@ -130,7 +130,7 @@ export default function Dock() {
         className={`lg-specular flex items-end gap-[6px] rounded-[22px] px-[7px] pb-[7px] pt-[7px] ${
           settings.reduceTransparency
             ? "bg-[#e9e9ec]/95 shadow-xl dark:bg-[#232326]/95"
-            : "glass"
+            : "glass-dock"
         }`}
         style={{ marginBottom: 0 }}
       >

@@ -20,7 +20,11 @@ export default function WindowManager() {
   }, [refitMaximized]);
 
   return (
-    <div className="absolute inset-0 z-[100] overflow-hidden">
+    /* pointer-events-none: la capa en si misma no debe bloquear el escritorio
+       (bug preexistente: con z-[100] a pantalla completa, los iconos del
+       escritorio quedaban debajo aunque no hubiera ventanas). Cada ventana
+       activa sus propios pointer-events en WindowFrame. */
+    <div className="pointer-events-none absolute inset-0 z-[100] overflow-hidden">
       <AnimatePresence>
         {windows.map((win) => (
           <WindowFrame key={win.id} win={win} order={orderOf(win.id)} active={activeId === win.id} />
