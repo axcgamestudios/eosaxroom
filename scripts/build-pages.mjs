@@ -12,7 +12,7 @@
    ============================================================ */
 
 import { spawnSync } from "node:child_process";
-import { existsSync, renameSync } from "node:fs";
+import { existsSync, renameSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -48,7 +48,17 @@ try {
     stdio: "inherit",
     env: { ...process.env, BUILD_TARGET: "pages" },
   });
-  if (r.status !== 0) process.exitCode = r.status ?? 1;
+  if (r.status !== 0) {
+    process.exitCode = r.status ?? 1;
+  } else {
+    // GitHub Pages: sin .nojekyll, Jekyll descartaría _next/ del artefacto.
+    // Se crea SIEMPRE (desde Actions o local) para que el despliegue sea idéntico.
+    const outDir = path.join(root, "out");
+    if (existsSync(outDir)) {
+      writeFileSync(path.join(outDir, ".nojekyll"), "");
+      console.log("[build:pages] out/.nojekyll creado ✓");
+    }
+  }
 } finally {
   restore();
 }

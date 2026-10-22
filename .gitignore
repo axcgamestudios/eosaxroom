@@ -51,5 +51,9 @@ test
 prompt
 
 server.log
-# Skills directory
-/skills/.deploy-gh/
+# Skills directory (entorno local, no del proyecto)
+/skills/
+
+# worktree local de despliegue a gh-pages (tanto directorio como gitlink)
+.deploy-gh
+.deploy-gh/
