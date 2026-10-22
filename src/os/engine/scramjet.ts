@@ -35,10 +35,14 @@ export function defaultWisp(): string {
   return MAIN_WISP;
 }
 
-/** Ruta base de la app: '' en raíz, '/aos' en GitHub Pages. */
+/** Ruta base de la app: '' en raíz, '/aos' en GitHub Pages.
+ *  Las páginas internas del OS (p. ej. /popup, /aos/popup) heredan la base
+ *  del OS: se quita su segmento antes de aplicar la heurística. */
 export function appBase(): string {
   if (typeof window === "undefined") return "";
-  const p = window.location.pathname.replace(/\/+$/, "");
+  let p = window.location.pathname.replace(/\/+$/, "");
+  // rutas internas reales de la app (no del motor): su base es la del OS
+  p = p.replace(/\/popup$/, "");
   if (!p) return "";
   const seg = p.slice(p.lastIndexOf("/") + 1);
   if (seg.includes(".")) return p.slice(0, p.lastIndexOf("/"));

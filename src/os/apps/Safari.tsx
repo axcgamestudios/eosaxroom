@@ -7,6 +7,7 @@ import {
   BookMarked,
   Clock,
   Download as DownloadIcon,
+  ExternalLink,
   Globe,
   History as HistoryIcon,
   Home,
@@ -17,6 +18,7 @@ import {
   Plus,
   RotateCw,
   Search,
+  ShieldAlert,
   Star,
   X,
   XCircle,
@@ -200,6 +202,11 @@ export default function SafariApp({ win }: AppProps) {
   const [installOpen, setInstallOpen] = useState(false);
   const [installName, setInstallName] = useState("");
   const [dismissedLoginUrl, setDismissedLoginUrl] = useState("");
+  const [dismissedRealwinUrl, setDismissedRealwinUrl] = useState("");
+  // ventana real (popup del sistema): referencia + pestaña que la abrió
+  const realWinRef = useRef<Window | null>(null);
+  const realWinTabRef = useRef<string>("");
+  const realWinModeRef = useRef<"engine" | "direct">("engine");
 
   const ctrlRef = useRef<ScramjetControllerApi | null>(null);
   const framesRef = useRef<Map<string, ScramjetFrameApi>>(new Map());
@@ -685,6 +692,47 @@ export default function SafariApp({ win }: AppProps) {
     }
   }, [installName, notify, openApp]);
 
+  /* ---------------- ventana real (nivel superior) ----------------
+     Algunos sitios (Google en cabeza) bloquean los inicios de sesión en
+     páginas embebidas: detectan que no son la ventana de nivel superior y
+     responden "este navegador no es seguro" aunque todo lo demás sea real.
+     La solución honesta es abrir el flujo en una VENTANA REAL del navegador:
+     - Por el motor: /popup comparte origen y Service Worker con el OS →
+       misma sesión de axcsOS (al cerrar, esta pestaña se recarga sola).
+     - Con mi conexión: la ventana navega al sitio real (IP del usuario,
+       sin motor); la sesión queda en su navegador. */
+  const openRealWindow = useCallback(
+    (mode: "engine" | "direct") => {
+      const t = tabsRef.current[activeRef.current];
+      if (!t || !/^https?:/i.test(t.url) || parseYouTubeUrl(t.url)) return;
+      const url = t.url;
+      const feats = "popup,width=1080,height=800";
+      const win =
+        mode === "direct"
+          ? window.open(url, "axcsos-realwin", feats)
+          : window.open(`${appBase()}/popup?u=${encodeURIComponent(url)}`, "axcsos-realwin", feats);
+      if (!win) {
+        notify(
+          "safari",
+          "Ventana emergente bloqueada",
+          "Permite las ventanas emergentes de este sitio en tu navegador y vuelve a intentarlo"
+        );
+        return;
+      }
+      realWinRef.current = win;
+      realWinTabRef.current = t.id;
+      realWinModeRef.current = mode;
+      notify(
+        "safari",
+        "Ventana real abierta",
+        mode === "engine"
+          ? "La sesión que inicies ahí queda dentro de axcsOS: al cerrar la ventana, esta pestaña se recarga"
+          : "Se abrirá con tu conexión: la sesión quedará en tu navegador (fuera de axcsOS)"
+      );
+    },
+    [notify]
+  );
+
   const installTargetInstalled = installOpen && activeTabData ? findWebAppByUrl(activeTabData.url) : undefined;
 
   const navigateTab = useCallback(
@@ -809,6 +857,63 @@ export default function SafariApp({ win }: AppProps) {
     },
     [addHistory, browser.wispUrl, openInternalTab, patchTab, readPageMetaSoon, retryFreshFrame, waitForIframe, wireFrameEvents]
   );
+
+  /* recarga una pestaña por id (para la ventana real) */
+  const reloadTabById = useCallback(
+    (id: string) => {
+      const t = tabsRef.current.find((x) => x.id === id);
+      if (!t || !/^https?:/i.test(t.url)) return;
+      if (parseYouTubeUrl(t.url)) {
+        patchTab(t.id, { rNonce: Date.now(), loading: true });
+        setTimeout(() => patchTab(t.id, { loading: false }), 350);
+        return;
+      }
+      if (t.direct) {
+        patchTab(t.id, { fNonce: Date.now(), loading: true, error: undefined });
+        return;
+      }
+      const frame = framesRef.current.get(t.id);
+      if (!frame) {
+        void navigateTab(t.id, t.url, { push: false });
+        return;
+      }
+      patchTab(t.id, { loading: true, error: undefined });
+      try {
+        frame.reload();
+      } catch {
+        void navigateTab(t.id, t.url, { push: false });
+      }
+    },
+    [navigateTab, patchTab]
+  );
+
+  /* al cerrarse la ventana real: recargar la pestaña que la abrió (por el
+     motor la sesión es compartida → aparece al instante) */
+  useEffect(() => {
+    const iv = setInterval(() => {
+      const w = realWinRef.current;
+      if (!w) return;
+      if (w.closed) {
+        realWinRef.current = null;
+        const tabId = realWinTabRef.current;
+        const mode = realWinModeRef.current;
+        realWinTabRef.current = "";
+        if (tabId) {
+          if (mode === "engine") {
+            reloadTabById(tabId);
+            notify("safari", "Ventana real cerrada", "Recargando para mostrar la sesión iniciada…");
+          } else {
+            notify(
+              "safari",
+              "Ventana real cerrada",
+              "Si iniciaste sesión con tu conexión, se quedó en tu navegador (no en axcsOS)"
+            );
+          }
+        }
+      }
+    }, 900);
+    return () => clearInterval(iv);
+  }, [notify, reloadTabById]);
 
   /* navegación inicial de la pestaña de arranque */
   useEffect(() => {
@@ -1106,6 +1211,20 @@ export default function SafariApp({ win }: AppProps) {
           <Star size={14} fill={bookmarked ? "currentColor" : "none"} />
         </button>
         <button
+          onClick={() => openRealWindow(activeTabData?.direct ? "direct" : "engine")}
+          disabled={!canInstallPage}
+          className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/10 disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-white/10"
+          title={
+            !canInstallPage
+              ? "Navega a una página para poder abrir su ventana real"
+              : activeTabData?.direct
+                ? "Abrir en ventana real con tu conexión"
+                : "Abrir en ventana real (ventana de nivel superior del navegador): para inicios de sesión que bloquean páginas embebidas, p. ej. Google"
+          }
+        >
+          <ExternalLink size={14} />
+        </button>
+        <button
           onClick={openInstall}
           disabled={!canInstallPage}
           className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/10 disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-white/10"
@@ -1131,6 +1250,36 @@ export default function SafariApp({ win }: AppProps) {
       {activeTabData?.loading && (
         <div className="h-0.5 shrink-0 overflow-hidden bg-transparent">
           <div className="animate-progress h-full w-1/3 rounded-full bg-[var(--accent-os)]" />
+        </div>
+      )}
+
+      {/* banner: sitios que bloquean el login embebido (Google) → ventana real */}
+      {!showStart && !showSearch && activeTabData && hostOf(activeTabData.url) === "accounts.google.com" && dismissedRealwinUrl !== activeTabData.url && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/25 bg-amber-500/[0.08] px-3 py-1.5 text-[11px]">
+          <ShieldAlert size={13} className="shrink-0 text-amber-500" />
+          <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">
+            <b className="text-neutral-800 dark:text-neutral-100">Google</b> bloquea el inicio de sesión dentro de páginas embebidas — ábrelo en una ventana real:
+          </span>
+          <button
+            onClick={() => openRealWindow("engine")}
+            className="shrink-0 rounded-full bg-amber-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
+            title="Ventana real navegada por el motor de axcsOS (misma sesión del sistema): al cerrarla, esta pestaña se recarga para mostrarte la cuenta iniciada"
+          >
+            Ventana real · por el motor
+          </button>
+          <button
+            onClick={() => openRealWindow("direct")}
+            className="shrink-0 rounded-full bg-black/5 px-3 py-1 text-[11px] font-medium text-neutral-600 transition hover:bg-black/10 dark:bg-white/10 dark:text-neutral-300 dark:hover:bg-white/20"
+            title="Ventana real con tu conexión (tu IP, sin motor): la sesión quedará en tu navegador, no en axcsOS"
+          >
+            Con mi conexión
+          </button>
+          <button
+            onClick={() => setDismissedRealwinUrl(activeTabData.url)}
+            className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10"
+          >
+            Ahora no
+          </button>
         </div>
       )}
 
