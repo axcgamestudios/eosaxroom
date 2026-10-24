@@ -15,9 +15,11 @@ import {
   Mail as MailIconLucide,
   KeyRound,
   MonitorDown,
+  MoreVertical,
   Plus,
   RotateCw,
   Search,
+  Settings2,
   ShieldAlert,
   Star,
   X,
@@ -182,6 +184,7 @@ export default function SafariApp({ win }: AppProps) {
   const setWindowTitle = useOS((s) => s.setWindowTitle);
   const notify = useOS((s) => s.notify);
   const openApp = useOS((s) => s.openApp);
+  const userName = useOS((s) => s.settings.userName);
 
   const [tabs, setTabs] = useState<Tab[]>([
     {
@@ -203,6 +206,7 @@ export default function SafariApp({ win }: AppProps) {
   const [installName, setInstallName] = useState("");
   const [dismissedLoginUrl, setDismissedLoginUrl] = useState("");
   const [dismissedRealwinUrl, setDismissedRealwinUrl] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
   // ventana real (popup del sistema): referencia + pestaña que la abrió
   const realWinRef = useRef<Window | null>(null);
   const realWinTabRef = useRef<string>("");
@@ -931,7 +935,7 @@ export default function SafariApp({ win }: AppProps) {
     if (t) {
       const isStart = t.url === START;
       const isSearch = t.url.startsWith(SEARCH_PREFIX);
-      setWindowTitle(winId, isStart ? "Safari" : isSearch ? `Búsqueda · Safari` : t.title.length > 42 ? t.title.slice(0, 42) + "…" : t.title || "Safari");
+      setWindowTitle(winId, isStart ? "Navegador" : isSearch ? `Búsqueda · Navegador` : t.title.length > 42 ? t.title.slice(0, 42) + "…" : t.title || "Navegador");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, tabId, activeTabData?.url]);
@@ -940,7 +944,7 @@ export default function SafariApp({ win }: AppProps) {
   useEffect(() => {
     if (!activeTabData) return;
     if (/^https?:/i.test(activeTabData.url) || activeTabData.url === START) {
-      setWindowTitle(winId, activeTabData.url === START ? "Safari" : activeTabData.title.length > 42 ? activeTabData.title.slice(0, 42) + "…" : activeTabData.title || "Safari");
+      setWindowTitle(winId, activeTabData.url === START ? "Navegador" : activeTabData.title.length > 42 ? activeTabData.title.slice(0, 42) + "…" : activeTabData.title || "Navegador");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTabData?.title, activeTabData?.url]);
@@ -1054,7 +1058,7 @@ export default function SafariApp({ win }: AppProps) {
   const showSearch = activeTabData?.url.startsWith(SEARCH_PREFIX) ?? false;
 
   return (
-    <div className="relative flex h-full flex-col bg-white dark:bg-neutral-950" onKeyDown={onKeyDownShell}>
+    <div className="nav-theme dark relative flex h-full flex-col bg-[#0b101e]" onKeyDown={onKeyDownShell}>
       {/* banner de error del motor */}
       {engineError && (
         <div className="flex items-center gap-2 border-b border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-600 dark:text-rose-300">
@@ -1066,23 +1070,25 @@ export default function SafariApp({ win }: AppProps) {
         </div>
       )}
 
-      {/* barra de pestañas */}
-      <div className="flex h-9 shrink-0 items-end gap-1 border-b border-black/8 bg-neutral-100/90 px-2 pt-1.5 backdrop-blur-xl dark:border-white/8 dark:bg-neutral-900/90">
-        <div className="no-scrollbar flex min-w-0 flex-1 items-end gap-1 overflow-x-auto">
+      {/* franja de pestañas — estilo Chrome, se funde con la toolbar */}
+      <div className="flex h-11 shrink-0 items-end gap-1 bg-[var(--nav-strip)] px-2.5 pt-2">
+        {/* px/-mx: el padding interno del scroller deja sitio a los hombros curvos
+            (flares ±9px) de la pestaña activa sin que overflow los recorte */}
+        <div className="no-scrollbar -mx-2.5 flex min-w-0 flex-1 items-end gap-1 overflow-x-auto px-2.5">
           {tabs.map((t, i) => (
             <button
               key={t.id}
               onClick={() => setActiveTab(i)}
               onDoubleClick={() => patchTab(t.id, { pinned: !t.pinned })}
-              className={`group flex h-7 shrink-0 items-center gap-1.5 rounded-t-lg border-t border-x px-2 text-[11px] transition ${
+              className={`group flex h-[34px] shrink-0 items-center gap-1.5 rounded-t-[10px] px-2.5 text-[11.5px] transition-colors ${
                 i === activeTab
-                  ? "border-black/8 bg-white text-neutral-800 shadow-[0_-1px_3px_rgba(0,0,0,0.05)] dark:border-white/10 dark:bg-neutral-800 dark:text-neutral-100"
-                  : "border-transparent bg-black/[0.04] text-neutral-500 hover:bg-black/[0.07] dark:bg-white/[0.04] dark:text-neutral-400 dark:hover:bg-white/[0.08]"
-              } ${t.pinned ? "w-11 justify-center" : "max-w-44 min-w-28"}`}
+                  ? "chrome-tab-active bg-[var(--nav-surface)] text-[var(--nav-text)]"
+                  : "text-[var(--nav-text-dim)] hover:bg-white/[0.06] hover:text-[var(--nav-text)]"
+              } ${t.pinned ? "w-11 justify-center" : "max-w-48 min-w-32"}`}
               title={t.pinned ? `${t.title} (fijada: doble clic para desfijar)` : `${t.title} — doble clic para fijar`}
             >
               {t.loading ? (
-                <RotateCw size={11} className="shrink-0 animate-spin text-[var(--accent-os)]" />
+                <RotateCw size={11} className="shrink-0 animate-spin text-[var(--nav-accent)]" />
               ) : t.favicon ? (
                 <img src={t.favicon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-[3px]" onError={(e) => ((e.target as HTMLImageElement).style.visibility = "hidden")} />
               ) : (
@@ -1097,7 +1103,7 @@ export default function SafariApp({ win }: AppProps) {
                     e.stopPropagation();
                     closeTab(t.id);
                   }}
-                  className="shrink-0 rounded p-0.5 opacity-0 transition hover:bg-black/10 dark:hover:bg-white/20 group-hover:opacity-100"
+                  className="shrink-0 rounded-full p-0.5 opacity-0 transition hover:bg-white/15 group-hover:opacity-100"
                 >
                   <X size={10} />
                 </span>
@@ -1106,150 +1112,193 @@ export default function SafariApp({ win }: AppProps) {
           ))}
           <button
             onClick={newTab}
-            className="mb-0.5 flex h-6 w-7 shrink-0 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/8 dark:text-neutral-400 dark:hover:bg-white/10"
+            className="mb-1 flex h-7 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text-dim)] transition hover:bg-[var(--nav-hover)] hover:text-[var(--nav-text)]"
             title="Nueva pestaña (⌘T)"
           >
-            <Plus size={13} />
-          </button>
-        </div>
-        <div className="flex items-center gap-0.5 pb-1">
-          <button
-            onClick={() => setPanel(panel === "bookmarks" ? null : "bookmarks")}
-            className={`flex h-6 w-7 items-center justify-center rounded-md transition hover:bg-black/8 dark:hover:bg-white/10 ${panel === "bookmarks" ? "text-[var(--accent-os)]" : "text-neutral-500 dark:text-neutral-400"}`}
-            title="Marcadores"
-          >
-            <BookMarked size={13} />
-          </button>
-          <button
-            onClick={() => setPanel(panel === "history" ? null : "history")}
-            className={`flex h-6 w-7 items-center justify-center rounded-md transition hover:bg-black/8 dark:hover:bg-white/10 ${panel === "history" ? "text-[var(--accent-os)]" : "text-neutral-500 dark:text-neutral-400"}`}
-            title="Historial"
-          >
-            <HistoryIcon size={13} />
+            <Plus size={14} />
           </button>
         </div>
       </div>
 
-      {/* toolbar */}
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-black/8 bg-neutral-100/80 px-3 backdrop-blur-xl dark:border-white/8 dark:bg-neutral-900/80">
-        <button onClick={() => cmd("back")} className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/10 disabled:opacity-30 dark:text-neutral-300 dark:hover:bg-white/10" title="Atrás" disabled={!activeTabData || activeTabData.hIndex <= 0}>
-          <ArrowLeft size={15} />
+      {/* toolbar — fusionada con la pestaña activa (estilo Chrome) */}
+      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-[var(--nav-border)] bg-[var(--nav-surface)] px-2.5">
+        <button onClick={() => cmd("back")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-30" title="Atrás" disabled={!activeTabData || activeTabData.hIndex <= 0}>
+          <ArrowLeft size={16} />
         </button>
-        <button onClick={() => cmd("forward")} className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/10 disabled:opacity-30 dark:text-neutral-300 dark:hover:bg-white/10" title="Adelante" disabled={!activeTabData || activeTabData.hIndex >= activeTabData.history.length - 1}>
-          <ArrowRight size={15} />
+        <button onClick={() => cmd("forward")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-30" title="Adelante" disabled={!activeTabData || activeTabData.hIndex >= activeTabData.history.length - 1}>
+          <ArrowRight size={16} />
         </button>
-        <button onClick={() => cmd("reload")} className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/10 disabled:opacity-30 dark:text-neutral-300 dark:hover:bg-white/10" title="Recargar" disabled={showStart || showSearch}>
-          <RotateCw size={13} className={activeTabData?.loading ? "animate-spin" : ""} />
+        <button onClick={() => cmd("reload")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-30" title="Recargar" disabled={showStart || showSearch}>
+          <RotateCw size={14} className={activeTabData?.loading ? "animate-spin" : ""} />
         </button>
         {activeTabData?.loading ? (
-          <button onClick={() => cmd("stop")} className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/10 dark:text-neutral-300 dark:hover:bg-white/10" title="Detener carga">
-            <XCircle size={13} />
+          <button onClick={() => cmd("stop")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]" title="Detener carga">
+            <XCircle size={14} />
           </button>
         ) : (
           <button
             onClick={() => tabId && navigateTab(tabId, START)}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-600 transition hover:bg-black/10 dark:text-neutral-300 dark:hover:bg-white/10"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]"
             title="Página de inicio"
           >
-            <Home size={14} />
+            <Home size={15} />
           </button>
         )}
+        {/* omnibox: píldora central estilo Chrome */}
         <form
-          className="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg bg-black/5 px-3 focus-within:ring-2 focus-within:ring-[var(--accent-os)]/50 dark:bg-white/10"
+          className="flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-full border border-[var(--nav-border)] bg-[var(--nav-field)] px-3.5 transition focus-within:border-[var(--nav-accent)] focus-within:bg-[var(--nav-field-focus)] focus-within:ring-2 focus-within:ring-[var(--nav-accent)]/40"
           onSubmit={(e) => {
             e.preventDefault();
             submitAddress();
           }}
         >
-          {showStart || showSearch ? <Search size={12} className="shrink-0 text-neutral-400" /> : <Lock size={11} className="shrink-0 text-emerald-500" />}
+          {showStart || showSearch ? <Search size={12} className="shrink-0 text-[var(--nav-text-dim)]" /> : <Lock size={11} className="shrink-0 text-[var(--nav-accent)]" />}
           <input
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="Buscar en la web o escribir dirección (URL)"
             spellCheck={false}
-            className="os-input h-full w-full bg-transparent text-[12px] text-neutral-700 outline-none placeholder:text-neutral-400 dark:text-neutral-200"
+            className="os-input h-full w-full min-w-0 bg-transparent text-[12px] text-[var(--nav-text)] outline-none placeholder:text-[var(--nav-text-dim)]"
           />
+          {activeTabData?.direct && (
+            <span
+              className="flex h-[17px] shrink-0 items-center rounded-full bg-[var(--nav-accent)]/15 px-2 text-[9.5px] font-semibold text-[var(--nav-accent)]"
+              title="Esta pestaña usa conexión directa (tu IP), sin motor: la usan los sitios que bloquean la IP de los motores pero permiten mostrarse aquí."
+            >
+              directa
+            </span>
+          )}
           {address && (
-            <button type="button" onClick={() => setAddress("")} className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
+            <button type="button" onClick={() => setAddress("")} className="shrink-0 text-[var(--nav-text-dim)] transition hover:text-[var(--nav-text)]">
               <X size={11} />
             </button>
           )}
-        </form>
-        {activeTabData?.direct && (
-          <span
-            className="flex h-[18px] shrink-0 items-center rounded-full bg-sky-500/15 px-2 text-[9.5px] font-semibold text-sky-600 dark:text-sky-400"
-            title="Esta pestaña usa conexión directa (tu IP), sin motor: la usan los sitios que bloquean la IP de los motores pero permiten mostrarse aquí."
+          <span className="h-4 w-px shrink-0 bg-[var(--nav-border)]" />
+          <button
+            type="button"
+            onClick={toggleBookmark}
+            className={`shrink-0 p-0.5 transition ${bookmarked ? "text-amber-300" : "text-[var(--nav-text-dim)] hover:text-[var(--nav-text)]"}`}
+            title={bookmarked ? "Quitar marcador" : "Añadir marcador"}
           >
-            directa
-          </span>
-        )}
-        <button
-          onClick={() => (snap.identityEmail ? doLoginFill() : openApp("settings", { payload: { section: "account" } }))}
-          className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-black/10 dark:hover:bg-white/10 ${snap.identityEmail && snap.detected ? "text-[var(--accent-os)]" : "text-neutral-500 dark:text-neutral-400"}`}
-          title={
-            snap.identityEmail
-              ? `Rellenar tu correo (${snap.identityEmail}${snap.identityVerified ? " · verificado" : ""}) en esta página`
-              : "Añade tu correo en Ajustes → Cuenta (AXC ID) para que Safari rellene tus inicios de sesión"
-          }
-        >
-          <MailIconLucide size={14} />
-        </button>
+            <Star size={13} fill={bookmarked ? "currentColor" : "none"} />
+          </button>
+        </form>
         {snap.hasSaved && (
           <button
             onClick={() => void doFillSaved()}
-            className="flex h-7 w-7 items-center justify-center rounded-md text-emerald-500 transition hover:bg-emerald-500/10"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-emerald-400 transition hover:bg-[var(--nav-hover)]"
             title={`Contraseña guardada para ${snap.host}: rellenar usuario y contraseña`}
           >
-            <KeyRound size={14} />
+            <KeyRound size={15} />
           </button>
         )}
+        {/* avatar (AXC ID): rellena tu correo en la página o abre tu cuenta */}
         <button
-          onClick={toggleBookmark}
-          className={`flex h-7 w-7 items-center justify-center rounded-md transition hover:bg-black/10 dark:hover:bg-white/10 ${bookmarked ? "text-amber-400" : "text-neutral-500 dark:text-neutral-400"}`}
-          title={bookmarked ? "Quitar marcador" : "Añadir marcador"}
-        >
-          <Star size={14} fill={bookmarked ? "currentColor" : "none"} />
-        </button>
-        <button
-          onClick={() => openRealWindow(activeTabData?.direct ? "direct" : "engine")}
-          disabled={!canInstallPage}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/10 disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-white/10"
+          onClick={() => (snap.identityEmail ? doLoginFill() : openApp("settings", { payload: { section: "account" } }))}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--nav-accent-deep)] to-[#0b101e] text-[11px] font-bold text-white ring-1 transition hover:brightness-125 ${
+            snap.identityEmail && snap.detected ? "ring-[var(--nav-accent)]" : "ring-[var(--nav-border)]"
+          }`}
           title={
-            !canInstallPage
-              ? "Navega a una página para poder abrir su ventana real"
-              : activeTabData?.direct
-                ? "Abrir en ventana real con tu conexión"
-                : "Abrir en ventana real (ventana de nivel superior del navegador): para inicios de sesión que bloquean páginas embebidas, p. ej. Google"
+            snap.identityEmail
+              ? `Rellenar tu correo (${snap.identityEmail}${snap.identityVerified ? " · verificado" : ""}) en esta página`
+              : "Añade tu correo en Ajustes → Cuenta (AXC ID) para que el Navegador rellene tus inicios de sesión"
           }
         >
-          <ExternalLink size={14} />
+          {(userName || "U").trim().charAt(0).toUpperCase()}
         </button>
-        <button
-          onClick={openInstall}
-          disabled={!canInstallPage}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/10 disabled:opacity-30 dark:text-neutral-400 dark:hover:bg-white/10"
-          title={
-            !canInstallPage
-              ? activeTabData && parseYouTubeUrl(activeTabData.url)
-                ? "YouTube ya es una app nativa de axcsOS (está en el Dock)"
-                : "Navega a una página para poder instalarla como app"
-              : "Instalar esta página como app de axcsOS"
-          }
-        >
-          <MonitorDown size={14} />
-        </button>
-        <button
-          onClick={() => openApp("downloads")}
-          className="flex h-7 w-7 items-center justify-center rounded-md text-neutral-500 transition hover:bg-black/10 dark:text-neutral-400 dark:hover:bg-white/10"
-          title="Descargas"
-        >
-          <DownloadIcon size={13} />
-        </button>
+        {/* menú ⋮ estilo Chrome */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className={`flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-[var(--nav-hover)] ${menuOpen ? "bg-[var(--nav-hover)] text-[var(--nav-text)]" : "text-[var(--nav-text-dim)] hover:text-[var(--nav-text)]"}`}
+            title="Más opciones"
+          >
+            <MoreVertical size={16} />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-60 rounded-xl border border-[var(--nav-border)] bg-[#111830] p-1.5 shadow-2xl shadow-black/50">
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPanel(panel === "bookmarks" ? null : "bookmarks");
+                  }}
+                >
+                  <BookMarked size={14} className="shrink-0 text-[var(--nav-text-dim)]" /> Marcadores
+                </button>
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setPanel(panel === "history" ? null : "history");
+                  }}
+                >
+                  <HistoryIcon size={14} className="shrink-0 text-[var(--nav-text-dim)]" /> Historial
+                </button>
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openApp("downloads");
+                  }}
+                >
+                  <DownloadIcon size={14} className="shrink-0 text-[var(--nav-text-dim)]" /> Descargas
+                </button>
+                <div className="mx-2.5 my-1 h-px bg-[var(--nav-border)]" />
+                <button
+                  disabled={!canInstallPage}
+                  title={
+                    !canInstallPage
+                      ? activeTabData && parseYouTubeUrl(activeTabData.url)
+                        ? "YouTube ya es una app nativa de axcsOS (está en el Dock)"
+                        : "Navega a una página para poder instalarla como app"
+                      : "Instalar esta página como app de axcsOS"
+                  }
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-40 disabled:hover:bg-transparent"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    if (canInstallPage) openInstall();
+                  }}
+                >
+                  <MonitorDown size={14} className="shrink-0 text-[var(--nav-text-dim)]" /> Instalar como app
+                </button>
+                <button
+                  disabled={!canInstallPage}
+                  title={
+                    !canInstallPage
+                      ? "Navega a una página para poder abrir su ventana real"
+                      : activeTabData?.direct
+                        ? "Abrir en ventana real con tu conexión"
+                        : "Abrir en ventana real (ventana de nivel superior del navegador): para inicios de sesión que bloquean páginas embebidas, p. ej. Google"
+                  }
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-40 disabled:hover:bg-transparent"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    if (canInstallPage) openRealWindow(activeTabData?.direct ? "direct" : "engine");
+                  }}
+                >
+                  <ExternalLink size={14} className="shrink-0 text-[var(--nav-text-dim)]" /> Ventana real
+                </button>
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    openApp("settings", { payload: { section: "browser" } });
+                  }}
+                >
+                  <Settings2 size={14} className="shrink-0 text-[var(--nav-text-dim)]" /> Ajustes del navegador
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {activeTabData?.loading && (
         <div className="h-0.5 shrink-0 overflow-hidden bg-transparent">
-          <div className="animate-progress h-full w-1/3 rounded-full bg-[var(--accent-os)]" />
+          <div className="animate-progress h-full w-1/3 rounded-full bg-[var(--nav-accent)]" />
         </div>
       )}
 
@@ -1372,7 +1421,7 @@ export default function SafariApp({ win }: AppProps) {
       {installOpen && activeTabData && /^https?:/i.test(activeTabData.url) && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/25 backdrop-blur-[2px]" onMouseDown={() => setInstallOpen(false)}>
           <div
-            className="glass lg-specular w-[min(92%,400px)] rounded-2xl p-5 shadow-2xl"
+            className="glass lg-specular w-[min(92%,400px)] rounded-2xl p-5 shadow-2xl dark:glass-dark"
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="mb-3 flex items-center gap-2">
@@ -1611,64 +1660,66 @@ function StartPage({
   const list = favs.length ? favs : bookmarks.slice(0, 8);
 
   return (
-    <div className="mac-scrollbar h-full overflow-y-auto bg-gradient-to-b from-neutral-50 to-neutral-100 px-8 py-10 dark:from-neutral-900 dark:to-neutral-950">
-      <div className="mx-auto max-w-xl">
-        <h2 className="mb-1 text-center text-[15px] font-semibold text-neutral-700 dark:text-neutral-200">Explorar con Safari</h2>
-        <p className="mb-5 text-center text-[11px] text-neutral-400">Navegación real por el motor Scramjet · todo dentro de axcsOS</p>
+    <div className="mac-scrollbar h-full overflow-y-auto bg-[radial-gradient(120%_80%_at_50%_0%,#17203d_0%,#0b101e_58%)] px-8 py-12">
+      <div className="mx-auto flex max-w-xl flex-col items-center">
+        {/* logo del Navegador (la brújula del estudio) */}
+        <img src="icons/safari.png" alt="" draggable={false} className="mb-4 h-16 w-16 rounded-[15px] shadow-lg shadow-black/40 ring-1 ring-white/10" />
+        <p className="mb-7 text-center text-[11px] text-[var(--nav-text-dim)]">Navegación real por el motor Scramjet · dentro de axcsOS</p>
 
         <form
-          className="mb-6 flex h-10 items-center gap-2 rounded-xl bg-white shadow-sm ring-1 ring-black/5 focus-within:ring-2 focus-within:ring-[var(--accent-os)]/50 dark:bg-neutral-800 dark:ring-white/10"
+          className="mb-9 flex h-12 w-full items-center gap-3 rounded-full border border-[var(--nav-border)] bg-[var(--nav-field)] px-5 shadow-lg shadow-black/30 transition focus-within:border-[var(--nav-accent)] focus-within:ring-2 focus-within:ring-[var(--nav-accent)]/40"
           onSubmit={(e) => {
             e.preventDefault();
             if (q.trim()) onSearch(q.trim());
           }}
         >
-          <Search size={14} className="ml-3 shrink-0 text-neutral-400" />
+          <Search size={16} className="shrink-0 text-[var(--nav-text-dim)]" />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Buscar en la web (Bing)"
-            className="h-full w-full bg-transparent text-[13px] text-neutral-700 outline-none dark:text-neutral-100"
+            className="os-input h-full w-full bg-transparent text-[14px] text-[var(--nav-text)] outline-none placeholder:text-[var(--nav-text-dim)]"
           />
         </form>
 
-        <div className="grid grid-cols-4 gap-4">
+        {/* accesos directos estilo Chrome (círculos) */}
+        <div className="grid w-full grid-cols-4 gap-5">
           {list.map((f) => {
             const key = hostOf(f.url);
             const meta = FAV_LETTER[key] ?? { color: "linear-gradient(135deg,#64748b,#334155)", letter: f.name[0]?.toUpperCase() ?? "•" };
             return (
               <button key={f.id} onClick={() => onOpen(f.url)} className="group flex flex-col items-center gap-2">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-white shadow-md transition group-hover:scale-105" style={{ background: meta.color }}>
+                <div className="flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold text-white shadow-lg shadow-black/40 ring-1 ring-white/10 transition group-hover:scale-105 group-hover:ring-[var(--nav-accent)]" style={{ background: meta.color }}>
                   {meta.letter}
                 </div>
-                <span className="max-w-full truncate text-[11px] text-neutral-600 dark:text-neutral-300">{f.name}</span>
+                <span className="max-w-full truncate text-[11px] text-[var(--nav-text-dim)] group-hover:text-[var(--nav-text)]">{f.name}</span>
               </button>
             );
           })}
         </div>
 
         {history.length > 0 && (
-          <div className="glass lg-specular mx-auto mt-8 max-w-md rounded-2xl p-4 dark:glass-dark">
-            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-neutral-500 dark:text-neutral-400">
+          <div className="mt-10 w-full rounded-2xl border border-[var(--nav-border)] bg-white/[0.03] p-4">
+            <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-[var(--nav-text-dim)]">
               <Clock size={12} /> Visitados recientemente
             </div>
             <div className="flex flex-col gap-1">
               {history.slice(0, 5).map((h) => (
-                <button key={h.id} onClick={() => onOpen(h.url)} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-black/5 dark:hover:bg-white/10">
-                  <Globe size={11} className="shrink-0 text-neutral-400" />
-                  <span className="min-w-0 flex-1 truncate text-[11px] text-neutral-600 dark:text-neutral-300">{h.title || h.url}</span>
-                  <span className="shrink-0 text-[10px] text-neutral-400">{hostOf(h.url)}</span>
+                <button key={h.id} onClick={() => onOpen(h.url)} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/[0.06]">
+                  <Globe size={11} className="shrink-0 text-[var(--nav-text-dim)]" />
+                  <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--nav-text)]">{h.title || h.url}</span>
+                  <span className="shrink-0 text-[10px] text-[var(--nav-text-dim)]">{hostOf(h.url)}</span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
-        <div className="glass lg-specular mx-auto mt-4 max-w-md rounded-2xl p-4 text-[11px] leading-relaxed text-neutral-500 dark:glass-dark dark:text-neutral-400">
+        <div className="mt-4 w-full rounded-2xl border border-[var(--nav-border)] bg-white/[0.03] p-4 text-[11px] leading-relaxed text-[var(--nav-text-dim)]">
           <div className="mb-1 flex items-center gap-2">
             <span className={`h-2 w-2 rounded-full ${engineReady ? "bg-emerald-500" : "bg-amber-500"}`} />
-            <b className="text-neutral-600 dark:text-neutral-300">Motor {engineReady ? "activo" : "iniciando…"}</b>
-            <span className="min-w-0 flex-1 truncate text-neutral-400">{engineWisp}</span>
+            <b className="text-[var(--nav-text)]">Motor {engineReady ? "activo" : "iniciando…"}</b>
+            <span className="min-w-0 flex-1 truncate text-[var(--nav-text-dim)]">{engineWisp}</span>
           </div>
           {engineKind === "own" ? (
             <p>
@@ -1679,7 +1730,7 @@ function StartPage({
             <p>
               Conectado al transporte público de demostración de Mercury Workshop (respaldo externo, sin garantía). El
               motor propio del estudio se retomará automáticamente cuando responda. Puedes forzar el reintento desde{" "}
-              <button onClick={onOpenSettings} className="font-semibold text-[var(--accent-os)] underline">
+              <button onClick={onOpenSettings} className="font-semibold text-[var(--nav-accent)] underline">
                 Ajustes → Navegador
               </button>
               .
@@ -1741,7 +1792,7 @@ function SearchResultsPage({ query, engine, searxngUrl, onOpen, onFallback }: { 
   }, [query, engine, searxngUrl, onFallback]);
 
   return (
-    <div className="mac-scrollbar h-full overflow-y-auto bg-white dark:bg-neutral-950">
+    <div className="mac-scrollbar h-full overflow-y-auto bg-[#0c1120]">
       <div className="mx-auto max-w-2xl px-6 py-8">
         <div className="mb-4 flex items-center gap-2 text-[12px] text-neutral-400">
           <Search size={13} />
@@ -1860,8 +1911,8 @@ function SidePanel({
   onClose: () => void;
 }) {
   return (
-    <div className="mac-scrollbar max-h-48 shrink-0 overflow-y-auto border-b border-black/8 bg-neutral-50/95 px-3 py-2 dark:border-white/8 dark:bg-neutral-900/95">
-      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold tracking-wide text-neutral-500 uppercase dark:text-neutral-400">
+    <div className="mac-scrollbar max-h-48 shrink-0 overflow-y-auto border-b border-[var(--nav-border)] bg-[#0d1425] px-3 py-2">
+      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold tracking-wide text-[var(--nav-text-dim)] uppercase">
         {kind === "bookmarks" ? <BookMarked size={11} /> : <HistoryIcon size={11} />}
         {kind === "bookmarks" ? "Marcadores" : "Historial"}
         <span className="flex-1" />
@@ -1870,21 +1921,21 @@ function SidePanel({
             Borrar todo
           </button>
         )}
-        <button onClick={onClose} className="rounded p-0.5 transition hover:bg-black/10 dark:hover:bg-white/10">
+        <button onClick={onClose} className="rounded p-0.5 text-[var(--nav-text-dim)] transition hover:bg-[var(--nav-hover)] hover:text-[var(--nav-text)]">
           <X size={11} />
         </button>
       </div>
       <div className="flex flex-col">
         {kind === "bookmarks" &&
           (bookmarks.length === 0 ? (
-            <span className="px-2 py-1.5 text-[11px] text-neutral-400">Sin marcadores todavía. Pulsa la estrella para guardar la página actual.</span>
+            <span className="px-2 py-1.5 text-[11px] text-[var(--nav-text-dim)]">Sin marcadores todavía. Pulsa la estrella para guardar la página actual.</span>
           ) : (
             bookmarks.map((b) => (
-              <div key={b.id} className="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-black/5 dark:hover:bg-white/10">
-                <button onClick={() => onOpen(b.url)} className="min-w-0 flex-1 truncate text-left text-[11px] text-neutral-600 dark:text-neutral-300">
-                  {b.name} <span className="text-neutral-400">· {hostOf(b.url)}</span>
+              <div key={b.id} className="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/[0.06]">
+                <button onClick={() => onOpen(b.url)} className="min-w-0 flex-1 truncate text-left text-[11px] text-[var(--nav-text)]">
+                  {b.name} <span className="text-[var(--nav-text-dim)]">· {hostOf(b.url)}</span>
                 </button>
-                <button onClick={() => onRemoveBookmark(b.id)} className="shrink-0 rounded p-0.5 text-neutral-400 opacity-0 transition hover:text-rose-500 group-hover:opacity-100" title="Eliminar">
+                <button onClick={() => onRemoveBookmark(b.id)} className="shrink-0 rounded p-0.5 text-[var(--nav-text-dim)] opacity-0 transition hover:text-rose-400 group-hover:opacity-100" title="Eliminar">
                   <X size={10} />
                 </button>
               </div>
@@ -1892,15 +1943,15 @@ function SidePanel({
           ))}
         {kind === "history" &&
           (history.length === 0 ? (
-            <span className="px-2 py-1.5 text-[11px] text-neutral-400">Sin historial. Se guarda según Ajustes → Navegador.</span>
+            <span className="px-2 py-1.5 text-[11px] text-[var(--nav-text-dim)]">Sin historial. Se guarda según Ajustes → Navegador.</span>
           ) : (
             history.map((h) => (
-              <div key={h.id} className="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-black/5 dark:hover:bg-white/10">
-                <button onClick={() => onOpen(h.url)} className="min-w-0 flex-1 truncate text-left text-[11px] text-neutral-600 dark:text-neutral-300">
-                  {h.title || h.url} <span className="text-neutral-400">· {hostOf(h.url)}</span>
+              <div key={h.id} className="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/[0.06]">
+                <button onClick={() => onOpen(h.url)} className="min-w-0 flex-1 truncate text-left text-[11px] text-[var(--nav-text)]">
+                  {h.title || h.url} <span className="text-[var(--nav-text-dim)]">· {hostOf(h.url)}</span>
                 </button>
-                <span className="shrink-0 text-[9px] text-neutral-400">{new Date(h.time).toLocaleDateString()}</span>
-                <button onClick={() => onRemoveHistory(h.id)} className="shrink-0 rounded p-0.5 text-neutral-400 opacity-0 transition hover:text-rose-500 group-hover:opacity-100" title="Eliminar entrada">
+                <span className="shrink-0 text-[9px] text-[var(--nav-text-dim)]">{new Date(h.time).toLocaleDateString()}</span>
+                <button onClick={() => onRemoveHistory(h.id)} className="shrink-0 rounded p-0.5 text-[var(--nav-text-dim)] opacity-0 transition hover:text-rose-400 group-hover:opacity-100" title="Eliminar entrada">
                   <X size={10} />
                 </button>
               </div>

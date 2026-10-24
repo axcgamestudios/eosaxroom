@@ -392,9 +392,9 @@ function WebAppToolbar({
       <button
         onClick={onOpenSafari}
         className="flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-neutral-500 transition hover:bg-black/10 dark:text-neutral-400 dark:hover:bg-white/10"
-        title={`Abrir ${url} en una pestaña de Safari`}
+        title={`Abrir ${url} en una pestaña del Navegador`}
       >
-        <ExternalLink size={12} /> Safari
+        <ExternalLink size={12} /> Navegador
       </button>
     </div>
   );

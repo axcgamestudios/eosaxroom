@@ -116,7 +116,7 @@ export const APPS: AppDef[] = [
   },
   {
     id: "safari",
-    name: "Safari",
+    name: "Navegador",
     icon: SafariLogoIcon,
     component: SafariApp,
     defaultSize: { w: 1020, h: 660 },

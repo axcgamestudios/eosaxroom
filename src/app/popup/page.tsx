@@ -9,10 +9,10 @@
    el acceso con "este navegador no es seguro".
 
    Esta página vive en una VENTANA REAL de nivel superior abierta
-   por Safari. Como comparte origen (y Service Worker) con el OS,
+   por el Navegador. Como comparte origen (y Service Worker) con el OS,
    el motor Scramjet funciona aquí con el MISMO frasco de cookies:
    la sesión iniciada en esta ventana queda dentro de axcsOS y al
-   cerrarla Safari recarga la pestaña para mostrarla.
+   cerrarla el Navegador recarga la pestaña para mostrarla.
 
    Además del motor, la barra ofrece "Con mi conexión": navega
    esta misma ventana al sitio REAL (IP del usuario, sin motor)
@@ -155,7 +155,7 @@ function PopupInner() {
     setTimeout(() => setError("Esta ventana no se puede cerrar automáticamente; ciérrala tú."), 50);
   }, []);
 
-  /* avisar a la ventana que abrió (Safari recarga la pestaña al enterarse) */
+  /* avisar a la ventana que abrió (el Navegador recarga la pestaña al enterarse) */
   useEffect(() => {
     const post = () => {
       try {

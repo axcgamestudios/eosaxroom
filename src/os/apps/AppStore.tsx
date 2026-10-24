@@ -156,7 +156,7 @@ export default function AppStoreApp(_props: AppProps) {
                 <Download size={26} className="mx-auto mb-2 text-neutral-300" />
                 <p className="text-[12.5px] text-neutral-500 dark:text-neutral-400">
                   Todavía no hay apps instaladas. Ve a <b>Descubrir</b> e instala un juego (o instala cualquier
-                  página desde Safari con el botón de instalar).
+                  página desde el Navegador con el botón de instalar).
                 </p>
               </div>
             ) : (

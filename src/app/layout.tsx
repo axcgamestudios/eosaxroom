@@ -19,7 +19,7 @@ const PEAR_PATH =
 export const metadata: Metadata = {
   title: "axcsOS",
   description:
-    "axcsOS — sistema operativo web con Liquid Glass: inicio de sesión, Finder, Safari nativo con proxy, Dock, Spotlight y la app AXCGAMES.",
+    "axcsOS — sistema operativo web con Liquid Glass: inicio de sesión, Finder, Navegador nativo con motor real, Dock, Spotlight y la app AXCGAMES.",
   icons: {
     icon:
       "data:image/svg+xml," +

@@ -439,3 +439,47 @@ nextjs-portal,
 #next-logo-wrapper {
   display: none !important;
 }
+
+/* ============================================================
+   Navegador (t18) — tema Chrome propio: negro + azul marino
+   El navegador lleva SIEMPRE tema oscuro (independiente del OS):
+   el componente raíz añade la clase .dark y estas variables.
+   ============================================================ */
+.nav-theme {
+  --nav-strip: #0b101e;        /* franja de pestañas (negro azulado) */
+  --nav-surface: #151c31;      /* pestaña activa + toolbar (fusión) */
+  --nav-field: #0a0f1e;        /* omnibox / campos */
+  --nav-field-focus: #0e1628;  /* omnibox enfocado */
+  --nav-border: #263252;       /* bordes sutiles azul marino */
+  --nav-hover: #1e2a4a;        /* hover de botones */
+  --nav-text: #c7d2ea;         /* texto principal */
+  --nav-text-dim: #8291b4;     /* texto secundario */
+  --nav-accent: #4a7ddf;       /* azul marino vivo (acentos/foco) */
+  --nav-accent-deep: #24418f;  /* azul marino profundo (rellenos) */
+}
+
+/* pestaña activa estilo Chrome: hombros curvos (flares) que la
+   funden con la toolbar de debajo. Geometría: cuarto de disco
+   transparente (radio 9px) centrado en la esquina superior del
+   lado exterior; el relleno queda en la "L" hacia la pestaña. */
+.chrome-tab-active {
+  position: relative;
+  z-index: 5;
+}
+.chrome-tab-active::before,
+.chrome-tab-active::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 9px;
+  height: 9px;
+  pointer-events: none;
+}
+.chrome-tab-active::before {
+  left: -9px;
+  background: radial-gradient(circle 9px at 0 0, transparent 8.4px, var(--nav-surface) 8.6px);
+}
+.chrome-tab-active::after {
+  right: -9px;
+  background: radial-gradient(circle 9px at 100% 0, transparent 8.4px, var(--nav-surface) 8.6px);
+}

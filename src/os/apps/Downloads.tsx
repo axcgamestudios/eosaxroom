@@ -30,7 +30,7 @@ export default function DownloadsApp({}: AppProps) {
     if (obj) {
       window.open(obj, "_blank", "noopener");
     } else {
-      notify("downloads", "Archivo no disponible", `"${name}" se descargó en una sesión anterior. Vuelve a descargarlo desde Safari.`);
+      notify("downloads", "Archivo no disponible", `"${name}" se descargó en una sesión anterior. Vuelve a descargarlo desde el Navegador.`);
     }
   };
 

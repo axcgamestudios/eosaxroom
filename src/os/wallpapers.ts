@@ -9,6 +9,12 @@ export interface Wallpaper {
 
 export const WALLPAPERS: Wallpaper[] = [
   {
+    id: "axcnavy",
+    name: "AXC Azul Marino",
+    css: "url('wallpapers/axcnavy.png') center/cover no-repeat",
+    dark: true,
+  },
+  {
     id: "goldengate",
     name: "Golden Gate",
     css: "url('wallpapers/goldengate.png') center/cover no-repeat",
@@ -64,7 +70,10 @@ export const WALLPAPERS: Wallpaper[] = [
   },
 ];
 
-export const DEFAULT_WALLPAPER = "goldengate";
+/* Fondo predeterminado actual: AXC Azul Marino (t18). El predeterminado
+   anterior era "goldengate" — ver la migración única en store.ts. */
+export const DEFAULT_WALLPAPER = "axcnavy";
+export const PREVIOUS_DEFAULT_WALLPAPER = "goldengate";
 
 export const CUSTOM_WALLPAPER_ID = "custom";
 

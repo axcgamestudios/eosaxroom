@@ -17,7 +17,7 @@ import type {
   WindowOpenOptions,
   WindowState,
 } from "./types";
-import { DEFAULT_WALLPAPER } from "./wallpapers";
+import { DEFAULT_WALLPAPER, PREVIOUS_DEFAULT_WALLPAPER } from "./wallpapers";
 import { getAppDef } from "./registry";
 import { defaultWisp, startWispKeepalive } from "./engine/scramjet";
 
@@ -572,6 +572,20 @@ export const useOS = create<OsStore>()(
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<OsStore>;
+        // Migración ÚNICA del fondo predeterminado (t18): quien tenía el default
+        // anterior (goldengate) estrena el nuevo (AXC Azul Marino); quien eligió
+        // otro fondo conserva su elección. El flag evita repetir la migración si
+        // el usuario vuelve a elegir el fondo antiguo a propósito.
+        let wallpaper = p.settings?.wallpaper ?? current.settings.wallpaper;
+        const NAVY_MIGRATION_FLAG = "axcsos-wp-default-t18";
+        try {
+          if (typeof window !== "undefined" && !window.localStorage.getItem(NAVY_MIGRATION_FLAG)) {
+            if (wallpaper === PREVIOUS_DEFAULT_WALLPAPER) wallpaper = DEFAULT_WALLPAPER;
+            window.localStorage.setItem(NAVY_MIGRATION_FLAG, "1");
+          }
+        } catch {
+          /* localStorage no disponible: se queda el fondo persistido */
+        }
         return {
           ...current,
           ...p,
@@ -585,7 +599,7 @@ export const useOS = create<OsStore>()(
             // migración: el valor antiguo "ddg" pasa a "bing"
             searchEngine: p.browser?.searchEngine === "searxng" ? "searxng" : "bing",
           },
-          settings: { ...current.settings, ...(p.settings ?? {}) },
+          settings: { ...current.settings, ...(p.settings ?? {}), wallpaper },
         };
       },
     }

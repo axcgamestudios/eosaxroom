@@ -416,7 +416,7 @@ function VaultCard() {
             Contraseñas guardadas ({entries.length})
           </p>
           <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
-            Cuando inicies sesión en una página con Safari, te ofrecerá guardar la contraseña. Se almacena cifrada con
+            Cuando inicies sesión en una página con el Navegador, te ofrecerá guardar la contraseña. Se almacena cifrada con
             <b> AES-256-GCM</b> y una clave propia de este dispositivo: nunca en texto plano.
           </p>
           {entries.length > 0 && (
@@ -558,8 +558,8 @@ function AxcIdCard() {
           </p>
           <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
             {entry?.verified
-              ? "Verificado ✓ — es el correo que Safari rellena por ti al iniciar sesión en la web, y al que puedes entrar sin contraseña desde la pantalla de inicio."
-              : "Pon el correo que YA TIENES (Gmail, Outlook, el que sea): te llega un código de 6 dígitos y, al verificarlo, Safari lo usará para rellenar tus inicios de sesión en las páginas. «Recordarme» en la pantalla de inicio funciona igual, con o sin correo."}
+              ? "Verificado ✓ — es el correo que el Navegador rellena por ti al iniciar sesión en la web, y al que puedes entrar sin contraseña desde la pantalla de inicio."
+              : "Pon el correo que YA TIENES (Gmail, Outlook, el que sea): te llega un código de 6 dígitos y, al verificarlo, el Navegador lo usará para rellenar tus inicios de sesión en las páginas. «Recordarme» en la pantalla de inicio funciona igual, con o sin correo."}
           </p>
           <div className="mt-2 flex gap-2">
             <input
@@ -863,7 +863,7 @@ function BrowserPane() {
         <Row>
           <div className="min-w-0">
             <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Motor de búsqueda</p>
-            <p className="text-[10.5px] text-neutral-400">Resultados reales mostrados dentro de Safari; se abren por el motor integrado.</p>
+            <p className="text-[10.5px] text-neutral-400">Resultados reales mostrados dentro del Navegador; se abren por el motor integrado.</p>
           </div>
           <div className="flex shrink-0 gap-2">
             <ChoiceButton active={browser.searchEngine === "bing"} onClick={() => updateBrowser({ searchEngine: "bing" })} label="Bing" />
