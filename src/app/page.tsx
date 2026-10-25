@@ -14,7 +14,6 @@ import { NotificationCenter, NotificationToasts } from "@/os/components/Notifica
 import AppSwitcher from "@/os/components/AppSwitcher";
 import BootScreen from "@/os/components/BootScreen";
 import { LoginGate } from "@/os/components/LoginScreen";
-import AdminPanel from "@/os/components/AdminPanel";
 import { getMail, mailAddress } from "@/os/services/mail";
 
 export default function Page() {
@@ -28,7 +27,7 @@ export default function Page() {
 
   /* correo de axcsOS en segundo plano: si el usuario tiene dirección, el
      buzón se mantiene conectado para recibir cartas con notificación real
-     aunque la app Mail esté cerrada (misma red MQTT que Mensajes) */
+     aunque la app Mail esté cerrada */
   useEffect(() => {
     if (stage !== "desktop") return;
     if (!mailAddress()) return;
@@ -146,7 +145,6 @@ export default function Page() {
 
       <LoginGate />
       {stage === "boot" && <BootScreen />}
-      <AdminPanel />
 
       {/* brightness dimmer */}
       <div

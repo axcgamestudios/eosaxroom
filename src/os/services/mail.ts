@@ -7,12 +7,12 @@
      vez en la app Mail y sirve para identificarse al iniciar
      sesión en páginas web — Safari la rellena por ti).
    * Entrega REAL por los brokers MQTT públicos sobre WebSocket
-     (misma cadena verificada que usa Mensajes: emqx → hivemq →
-     mosquitto), QoS 1 con deduplicación por id de carta.
+     (emqx → hivemq → mosquitto), QoS 1 con deduplicación por id
+     de carta.
    * Persistencia en localStorage (recortada por cuota).
    * Los buzones solo existen dentro de axcsOS: las webs externas
      no pueden enviar aquí códigos de verificación (para eso está
-     el correo real verificado de AXC ID). No se finge lo contrario.
+     el correo real del usuario). No se finge lo contrario.
    ============================================================ */
 
 export const MAIL_DOMAIN = "axcs.os";
@@ -117,7 +117,7 @@ export function createMailAccount(localPart: string): MailAccount {
         `Hola:\n\nTu dirección ${acc.address} ya funciona. La usas para dos cosas:\n\n` +
         `1. Iniciar sesión en páginas web: cuando una web pida un correo (dentro de Safari), Safari te ofrecerá rellenarlo con esta dirección automáticamente.\n\n` +
         `2. Escribir a otras personas con axcsOS: escribe su dirección nombre@${MAIL_DOMAIN} en "Redactar" y la carta llega a su Mail en segundos.\n\n` +
-        `Importante y honesto: este buzón existe dentro de axcsOS. Las webs externas NO pueden enviarte aquí códigos de verificación; para eso usa tu correo real verificado en Ajustes → Cuenta → AXC ID.\n\n` +
+        `Importante y honesto: este buzón existe dentro de axcsOS. Las webs externas NO pueden enviarte aquí códigos de verificación; para eso usa tu correo real de siempre.\n\n` +
         `— El equipo de axcsOS 🍐`,
       ts: now,
       mine: false,

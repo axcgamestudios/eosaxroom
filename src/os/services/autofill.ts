@@ -5,7 +5,7 @@
    ------------------------------------------------------------
    Detecta formularios de acceso en las páginas cargadas dentro
    del navegador (las del motor son MISMO ORIGEN: su DOM es
-   legible), rellena el CORREO VERIFICADO del perfil (AXC ID) y
+   legible), rellena el correo @axcs.os del perfil y
    las contraseñas guardadas en la bóveda (vault.ts, AES-256-GCM),
    captura credenciales nuevas al enviar el formulario y propone
    guardarlas. En páginas cross-origin (modo directo externo) el
@@ -15,7 +15,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useOS } from "../store";
-import { getAxcid } from "./axcid";
 import { mailAddress } from "./mail";
 import { domainOf, findVaultEntry, getCredential, isNeverSave, saveCredential, neverSaveAgain } from "./vault";
 
@@ -157,27 +156,15 @@ export function submitLoginForm(doc: Document | null): boolean {
 
 export interface IdentityEmail {
   email: string;
-  verified: boolean;
-  source: "axcid" | "axcs.os";
 }
 
 /**
  * El correo con el que axcsOS inicia sesión en la web:
- * 1. el correo VERIFICADO del perfil (AXC ID) — el de verdad del usuario;
- * 2. si no hay, la dirección @axcs.os de Mail.
+ * la dirección @axcs.os de Mail (si la has creado).
  */
 export function identityEmail(): IdentityEmail | null {
-  try {
-    const session = useOS.getState().session;
-    if (session) {
-      const axcid = getAxcid(session.accountId);
-      if (axcid?.verified && axcid.email) return { email: axcid.email, verified: true, source: "axcid" };
-    }
-  } catch {
-    /* sin store: solo Mail */
-  }
   const m = mailAddress();
-  if (m) return { email: m, verified: false, source: "axcs.os" };
+  if (m) return { email: m };
   return null;
 }
 
@@ -198,9 +185,8 @@ export interface AutofillSnapshot {
   /** credencial guardada para este dominio */
   hasSaved: boolean;
   savedUsername: string | null;
-  /** correo del perfil (verificado AXC ID o @axcs.os) */
+  /** correo del perfil (@axcs.os de Mail) */
   identityEmail: string | null;
-  identityVerified: boolean;
   /** el usuario marcó «nunca guardar» aquí */
   never: boolean;
 }
@@ -213,7 +199,6 @@ const EMPTY_SNAP: AutofillSnapshot = {
   hasSaved: false,
   savedUsername: null,
   identityEmail: null,
-  identityVerified: false,
   never: false,
 };
 
@@ -340,7 +325,6 @@ export function useAutofillAssistant(ctx: React.RefObject<AutofillCtx>) {
         hasSaved: !!entry,
         savedUsername: entry?.username ?? null,
         identityEmail: identity?.email ?? null,
-        identityVerified: identity?.verified ?? false,
         never: host ? isNeverSave(host) : false,
       };
       const json = JSON.stringify(next);
@@ -356,7 +340,7 @@ export function useAutofillAssistant(ctx: React.RefObject<AutofillCtx>) {
 
   /* ---------- acciones ---------- */
 
-  /** Rellena SOLO el correo verificado del perfil. true si rellenó en la página. */
+  /** Rellena el correo del perfil (@axcs.os) en la página. true si rellenó. */
   const fillIdentityEmail = useCallback(
     (doc: Document | null): boolean => {
       const id = identityEmail();

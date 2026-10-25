@@ -255,5 +255,4 @@ export const STORE_CATALOG: StoreApp[] = [
 export const STORE_INCLUDED: { appId: string; name: string; description: string }[] = [
   { appId: "axcgames", name: "AXCGAMES", description: "El portal de juegos del estudio, incluido en axcsOS." },
   { appId: "mail", name: "Mail", description: "Correo axcsOS: tu dirección para iniciar sesión en la web." },
-  { appId: "messages", name: "Mensajes", description: "Chat cifrado de extremo a extremo entre cuentas axcsOS." },
 ];

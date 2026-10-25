@@ -35,8 +35,8 @@ export function defaultWisp(): string {
   return MAIN_WISP;
 }
 
-/** Ruta base de la app: '' en raíz, '/aos' en GitHub Pages.
- *  Las páginas internas del OS (p. ej. /popup, /aos/popup) heredan la base
+/** Ruta base de la app: '' en raíz, '/eosaxroom' en GitHub Pages.
+ *  Las páginas internas del OS (p. ej. /popup, /eosaxroom/popup) heredan la base
  *  del OS: se quita su segmento antes de aplicar la heurística. */
 export function appBase(): string {
   if (typeof window === "undefined") return "";

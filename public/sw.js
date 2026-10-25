@@ -1,5 +1,5 @@
 // sw.js — Service Worker de axcsOS para el motor Scramjet
-// Rutas relativas: funciona en / (dev/autohost) y /aos/ (GitHub Pages)
+// Rutas relativas: funciona en / (dev/autohost) y /eosaxroom/ (GitHub Pages)
 importScripts("scram/scramjet.all.js");
 
 const { ScramjetServiceWorker } = $scramjetLoadWorker();

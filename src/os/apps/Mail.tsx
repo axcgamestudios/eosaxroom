@@ -174,7 +174,7 @@ export default function MailApp(_props: AppProps) {
                   Sin cartas por ahora.
                   <br />
                   Tu dirección <b className="text-neutral-500 dark:text-neutral-300">{address}</b> ya puede recibir
-                  de otras cuentas axcsOS.
+                  de otros usuarios de axcsOS.
                 </>
               ) : (
                 "Nada enviado todavía."
@@ -309,7 +309,7 @@ function MailOnboarding({ username, onDone }: { username: string; onDone: (addr:
           <h2 className="text-[19px] font-semibold">Tu correo de axcsOS</h2>
           <p className="mt-1.5 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             Elige tu dirección: servirá para que <b>Safari inicie sesión por ti</b> en las páginas que pidan un
-            correo, y para escribir a otras cuentas de axcsOS.
+            correo, y para escribir a otros usuarios de axcsOS.
           </p>
 
           <div className="mt-5 flex items-center gap-2 rounded-xl bg-white px-3 py-2.5 shadow-sm ring-1 ring-black/5 focus-within:ring-2 focus-within:ring-[var(--accent-os)]/50 dark:bg-neutral-800 dark:ring-white/10">
@@ -342,8 +342,8 @@ function MailOnboarding({ username, onDone }: { username: string; onDone: (addr:
             Crear mi correo
           </button>
           <p className="mt-3 text-[10.5px] leading-relaxed text-neutral-400">
-            Honesto: este buzón vive dentro de axcsOS (entrega real entre cuentas). Las webs externas no pueden
-            enviarte aquí códigos; para esos casos usa tu correo real en Ajustes → Cuenta (AXC ID).
+            Honesto: este buzón vive dentro de axcsOS (entrega real entre usuarios). Las webs externas no pueden
+            enviarte aquí códigos de verificación; para eso usa tu correo real de siempre.
           </p>
         </div>
       </div>
