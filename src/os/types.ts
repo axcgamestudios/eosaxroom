@@ -120,8 +120,8 @@ export interface OsSettings {
 export interface BrowserSettings {
   /** URL del servidor wisp (transporte del motor Scramjet) */
   wispUrl: string;
-  /** motor de búsqueda: Bing (RSS público) o instancia SearXNG propia */
-  searchEngine: "bing" | "searxng";
+  /** motor de búsqueda: Bing (RSS público), instancia SearXNG propia o Google (página real en el motor) */
+  searchEngine: "bing" | "searxng" | "google";
   searxngUrl: string;
   /** guardar historial de navegación */
   keepHistory: boolean;

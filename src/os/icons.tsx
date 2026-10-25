@@ -482,10 +482,18 @@ export const AxcMark: IconType = ({ className }) => (
 );
 
 /* ============ Iconos de imagen oficiales de axcgamestudios ============
-   Rutas relativas al documento: funcionan en / (dev) y /aos/ (GitHub Pages). */
+   Rutas relativas al documento: funcionan en / (dev) y /eosaxroom/ (GitHub Pages).
+   Los PNG del estudio son cuadrados: se les da FORMA DE APP (esquinas
+   redondeadas tipo squircle de macOS) aquí, de modo que todos los tamaños
+   (Dock, Launchpad, Escritorio, Spotlight) la heredan. */
 const imgIcon = (src: string): IconType => ({ className }) => (
   // eslint-disable-next-line @next/next/no-img-element
-  <img src={src} alt="" className={className} draggable={false} />
+  <img
+    src={src}
+    alt=""
+    draggable={false}
+    className={`rounded-[22%] shadow-sm ring-1 ring-black/10 dark:ring-white/15 ${className ?? ""}`}
+  />
 );
 
 export const FinderLogoIcon = imgIcon("icons/finder.png");

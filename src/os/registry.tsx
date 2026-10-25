@@ -17,7 +17,6 @@ import {
   NotesLogoIcon,
   CalculatorLogoIcon,
   SettingsLogoIcon,
-  MessagesIcon,
   YouTubeIcon,
   MailIcon,
   AppStoreIcon,
@@ -33,7 +32,6 @@ import TextEditApp from "./apps/TextEdit";
 import PreviewApp from "./apps/Preview";
 import AboutApp from "./apps/AboutMac";
 import DownloadsApp from "./apps/Downloads";
-import MessagesApp from "./apps/Messages";
 import YouTubeApp from "./apps/YouTube";
 import MailApp from "./apps/Mail";
 import AppStoreApp from "./apps/AppStore";
@@ -129,23 +127,6 @@ export const APPS: AppDef[] = [
       { title: "Ver", items: [{ label: "Recargar página", shortcut: "⌘R" }] },
       { title: "Historial", items: [{ label: "Mostrar todo el historial", shortcut: "⌘Y" }] },
       { title: "Marcadores", items: [{ label: "Mostrar marcadores", shortcut: "⌥⌘B" }] },
-      windowMenu,
-      helpMenu,
-    ],
-  },
-  {
-    id: "messages",
-    name: "Mensajes",
-    icon: MessagesIcon,
-    component: MessagesApp,
-    defaultSize: { w: 880, h: 580 },
-    minSize: { w: 560, h: 380 },
-    showInDock: true,
-    showInLaunchpad: true,
-    menus: [
-      fileMenu,
-      editMenu,
-      { title: "Conversación", items: [{ label: "Nueva nota de voz", action: "openApp", actionArg: "messages" }] },
       windowMenu,
       helpMenu,
     ],

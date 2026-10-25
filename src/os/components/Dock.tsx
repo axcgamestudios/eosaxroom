@@ -12,7 +12,6 @@ const DOCK_APPS = [
   "safari",
   "appstore",
   "youtube",
-  "messages",
   "mail",
   "axcgames",
   "notes",

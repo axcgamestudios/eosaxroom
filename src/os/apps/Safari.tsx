@@ -108,6 +108,7 @@ function faviconFor(url: string): string {
 function normalizeInput(raw: string): string {
   const url = raw.trim();
   if (!url) return START;
+  if (url.startsWith(SEARCH_PREFIX)) return url; // ya viene prefijada (p. ej. StartPage): idempotente
   if (/^https?:\/\//i.test(url)) return url;
   if (/^[\w-]+(\.[\w-]+)+(:\d+)?(\/\S*)?$/.test(url) && !url.includes(" ")) return `https://${url}`;
   return SEARCH_PREFIX + encodeURIComponent(url);
@@ -116,6 +117,30 @@ function normalizeInput(raw: string): string {
 function hostOf(url: string): string {
   try {
     return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+/* Página /sorry de Google (verificación por IP de servidor): extrae la
+   consulta original para poder repetirla con otro motor. */
+function isGoogleSorry(url: string): boolean {
+  try {
+    const u = new URL(url);
+    return u.hostname.endsWith("google.com") && u.pathname.startsWith("/sorry");
+  } catch {
+    return false;
+  }
+}
+function googleSorryQuery(url: string): string {
+  try {
+    const u = new URL(url);
+    const cont = u.searchParams.get("continue");
+    if (cont) {
+      const inner = new URL(decodeURIComponent(cont));
+      return inner.searchParams.get("q") ?? "";
+    }
+    return u.searchParams.get("q") ?? "";
   } catch {
     return "";
   }
@@ -206,6 +231,7 @@ export default function SafariApp({ win }: AppProps) {
   const [installName, setInstallName] = useState("");
   const [dismissedLoginUrl, setDismissedLoginUrl] = useState("");
   const [dismissedRealwinUrl, setDismissedRealwinUrl] = useState("");
+  const [dismissedSorryUrl, setDismissedSorryUrl] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   // ventana real (popup del sistema): referencia + pestaña que la abrió
   const realWinRef = useRef<Window | null>(null);
@@ -225,7 +251,7 @@ export default function SafariApp({ win }: AppProps) {
   /* ---------------- asistente de acceso (autocompletado) ----------------
      El hook sondea la pestaña activa: detecta formularios de inicio de
      sesión (las páginas del motor son mismo-origen → DOM legible), ofrece
-     el CORREO VERIFICADO del perfil (AXC ID) y las contraseñas guardadas
+     el correo @axcs.os del perfil y las contraseñas guardadas
      de la bóveda (AES-256), y captura credenciales nuevas al enviar. */
   const autofillCtxRef = useRef<AutofillCtx>({
     getUrl: () => tabsRef.current[activeRef.current]?.url ?? "",
@@ -742,7 +768,12 @@ export default function SafariApp({ win }: AppProps) {
   const navigateTab = useCallback(
     async (id: string, rawUrl: string, opts?: { push?: boolean }) => {
       const push = opts?.push !== false;
-      const url = normalizeInput(rawUrl);
+      let url = normalizeInput(rawUrl);
+      // Motor de búsqueda GOOGLE: la búsqueda se hace en la página real de
+      // Google, cargada dentro del navegador por el motor integrado (JS real)
+      if (browser.searchEngine === "google" && url.startsWith(SEARCH_PREFIX)) {
+        url = `https://www.google.com/search?q=${url.slice(SEARCH_PREFIX.length)}`;
+      }
       const tab = tabsRef.current.find((t) => t.id === id);
       if (!tab) return;
 
@@ -859,7 +890,7 @@ export default function SafariApp({ win }: AppProps) {
         patchTab(id, { loading: false, title: "Error del motor" });
       }
     },
-    [addHistory, browser.wispUrl, openInternalTab, patchTab, readPageMetaSoon, retryFreshFrame, waitForIframe, wireFrameEvents]
+    [addHistory, browser.searchEngine, browser.wispUrl, openInternalTab, patchTab, readPageMetaSoon, retryFreshFrame, waitForIframe, wireFrameEvents]
   );
 
   /* recarga una pestaña por id (para la ventana real) */
@@ -1192,7 +1223,7 @@ export default function SafariApp({ win }: AppProps) {
             <KeyRound size={15} />
           </button>
         )}
-        {/* avatar (AXC ID): rellena tu correo en la página o abre tu cuenta */}
+        {/* avatar (perfil): rellena tu correo en la página o abre tu perfil */}
         <button
           onClick={() => (snap.identityEmail ? doLoginFill() : openApp("settings", { payload: { section: "account" } }))}
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--nav-accent-deep)] to-[#0b101e] text-[11px] font-bold text-white ring-1 transition hover:brightness-125 ${
@@ -1200,8 +1231,8 @@ export default function SafariApp({ win }: AppProps) {
           }`}
           title={
             snap.identityEmail
-              ? `Rellenar tu correo (${snap.identityEmail}${snap.identityVerified ? " · verificado" : ""}) en esta página`
-              : "Añade tu correo en Ajustes → Cuenta (AXC ID) para que el Navegador rellene tus inicios de sesión"
+              ? `Rellenar tu correo (${snap.identityEmail}) en esta página`
+              : "Crea tu correo en la app Mail y el Navegador rellenará tus inicios de sesión"
           }
         >
           {(userName || "U").trim().charAt(0).toUpperCase()}
@@ -1332,6 +1363,40 @@ export default function SafariApp({ win }: AppProps) {
         </div>
       )}
 
+      {/* banner: Google pide verificación (página real de Google) — opción honesta de cambiar de motor */}
+      {!showStart && !showSearch && activeTabData && isGoogleSorry(activeTabData.url) && dismissedSorryUrl !== activeTabData.url && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/25 bg-amber-500/[0.08] px-3 py-1.5 text-[11px]">
+          <ShieldAlert size={13} className="shrink-0 text-amber-500" />
+          <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">
+            <b className="text-neutral-800 dark:text-neutral-100">Google</b> pide verificación porque el motor navega con IP de servidor. Completa la verificación o repite la búsqueda con Bing:
+          </span>
+          <button
+            onClick={() => {
+              // la consulta puede estar en la URL actual (sorry→continue o search?q=)
+              // o en el historial de la pestaña (la búsqueda original de Google)
+              let q = googleSorryQuery(activeTabData.url);
+              if (!q) {
+                for (let i = activeTabData.history.length - 1; i >= 0 && !q; i--) {
+                  q = googleSorryQuery(activeTabData.history[i] ?? "");
+                }
+              }
+              updateBrowser({ searchEngine: "bing" });
+              if (q) void navigateTab(tabsRef.current[activeRef.current]?.id ?? activeTabData.id, SEARCH_PREFIX + encodeURIComponent(q));
+            }}
+            className="shrink-0 rounded-full bg-amber-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
+            title="Cambia el motor de búsqueda a Bing (resultados nativos, sin verificación) y repite esta búsqueda"
+          >
+            Buscar con Bing
+          </button>
+          <button
+            onClick={() => setDismissedSorryUrl(activeTabData.url)}
+            className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium text-neutral-500 transition hover:bg-black/5 dark:text-neutral-400 dark:hover:bg-white/10"
+          >
+            Ahora no
+          </button>
+        </div>
+      )}
+
       {/* banner del asistente de acceso: credencial guardada / correo del perfil / guardar contraseña */}
       {!showStart && !showSearch && activeTabData && !activeTabData.loading && dismissedLoginUrl !== activeTabData.url && (
         <>
@@ -1363,14 +1428,13 @@ export default function SafariApp({ win }: AppProps) {
               </button>
             </div>
           )}
-          {/* sin credencial: el correo del perfil (verificado AXC ID o @axcs.os) */}
+          {/* sin credencial: el correo del perfil (@axcs.os de Mail) */}
           {snap.detected && !(snap.hasSaved && !snap.signupLike) && snap.identityEmail && (
             <div className="flex shrink-0 items-center gap-2 border-b border-[var(--accent-os)]/20 bg-[var(--accent-os)]/[0.08] px-3 py-1.5 text-[11px]">
               <MailIconLucide size={13} className="shrink-0 text-[var(--accent-os)]" />
               <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">
                 {snap.signupLike ? "Esta página registra cuentas" : "Esta página pide un correo para iniciar sesión"} — usa el tuyo:{" "}
                 <b className="text-neutral-800 dark:text-neutral-100">{snap.identityEmail}</b>
-                {snap.identityVerified && <span className="ml-1 text-[9.5px] font-semibold text-emerald-500">✓ verificado</span>}
               </span>
               <button
                 onClick={doLoginFill}
@@ -1511,6 +1575,7 @@ export default function SafariApp({ win }: AppProps) {
                 engineKind={
                   (engineDiag.wispUrl || browser.wispUrl) === MAIN_WISP ? "own" : (engineDiag.wispUrl || browser.wispUrl) === DEMO_WISP ? "demo" : "other"
                 }
+                engineLabel={browser.searchEngine === "google" ? "Google" : browser.searchEngine === "searxng" ? "SearXNG" : "Bing"}
                 onOpen={(url) => navigateTab(t.id, url)}
                 onSearch={(q) => navigateTab(t.id, SEARCH_PREFIX + encodeURIComponent(q))}
                 onOpenSettings={() => openApp("settings", { payload: { section: "browser" } })}
@@ -1642,6 +1707,7 @@ function StartPage({
   engineReady,
   engineWisp,
   engineKind,
+  engineLabel,
   onOpen,
   onSearch,
   onOpenSettings,
@@ -1651,6 +1717,7 @@ function StartPage({
   engineReady: boolean;
   engineWisp: string;
   engineKind: "own" | "demo" | "other";
+  engineLabel: string;
   onOpen: (url: string) => void;
   onSearch: (q: string) => void;
   onOpenSettings: () => void;
@@ -1677,7 +1744,7 @@ function StartPage({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar en la web (Bing)"
+            placeholder={`Buscar en la web (${engineLabel})`}
             className="os-input h-full w-full bg-transparent text-[14px] text-[var(--nav-text)] outline-none placeholder:text-[var(--nav-text-dim)]"
           />
         </form>
@@ -1745,7 +1812,7 @@ function StartPage({
 /* ============================================================
    Resultados de búsqueda nativos (DDG vía motor · SearXNG opcional)
    ============================================================ */
-function SearchResultsPage({ query, engine, searxngUrl, onOpen, onFallback }: { query: string; engine: "bing" | "searxng"; searxngUrl: string; onOpen: (url: string) => void; onFallback: () => void }) {
+function SearchResultsPage({ query, engine, searxngUrl, onOpen, onFallback }: { query: string; engine: "bing" | "searxng" | "google"; searxngUrl: string; onOpen: (url: string) => void; onFallback: () => void }) {
   const [results, setResults] = useState<SearchResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [engineName, setEngineName] = useState(engine === "searxng" ? "SearXNG" : "Bing");
@@ -1764,7 +1831,6 @@ function SearchResultsPage({ query, engine, searxngUrl, onOpen, onFallback }: { 
           setEngineName("Bing");
           // 1) Bing RSS (resultados reales, sin clave)
           try {
-            // 1) Bing RSS (resultados reales, sin clave)
             res = await searchBingRSS(query);
           } catch {
             // 2) DDG html como respaldo

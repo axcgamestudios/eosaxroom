@@ -4,7 +4,7 @@ axcsOS es un escritorio web estilo macOS "Liquid Glass" que corre **100% en el
 navegador**, con un navegador propio (**Safari axcsOS**) que carga **sitios web
 reales** dentro de sus ventanas mediante el motor **Scramjet**.
 
-> **Demo:** https://axcgamestudios.github.io/aos/
+> **Demo:** https://axcgamestudios.github.io/eosaxroom/
 
 ---
 
@@ -78,7 +78,7 @@ dentro de la pestaña, nunca se oculta.
 npm install
 npm run dev            # http://localhost:3000
 npm run build          # build standalone (autoalojado)
-npm run build:pages    # export estático → out/ (GitHub Pages, basePath /aos)
+npm run build:pages    # export estático → out/ (GitHub Pages, basePath /eosaxroom)
 ```
 
 Servidor wisp local: `cd server && npm install && npm start` (puerto 3001).
@@ -87,7 +87,7 @@ En localhost el navegador lo detecta automáticamente.
 ## 📦 Despliegue
 
 - **Frontend**: estático. Este repo genera el export con `npm run build:pages`
-  y lo publica en la rama `gh-pages` (GitHub Pages → https://axcgamestudios.github.io/aos/).
+  y lo publica en la rama `gh-pages` (GitHub Pages → https://axcgamestudios.github.io/eosaxroom/).
 - **Transporte wisp**: el navegador usa por defecto el **motor propio del estudio**
   (wisp-server-node en Render), auto-configurado por el sistema con cadena de
   respaldo automática (motor propio → transporte demo público → wisp local en

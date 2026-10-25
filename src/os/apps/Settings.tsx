@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Globe, Info, Monitor, Palette, Sun, Moon, Upload, User, Search as SearchIcon, ShieldCheck, LogOut, LogIn } from "lucide-react";
+import { Check, Globe, Info, Monitor, Palette, Sun, Moon, Upload, User, Search as SearchIcon, ShieldCheck, LogOut } from "lucide-react";
 import type { AppProps } from "../types";
 import { useOS } from "../store";
 import { ACCENTS, CUSTOM_WALLPAPER_ID, WALLPAPERS } from "../wallpapers";
@@ -17,14 +17,8 @@ import {
   recoverEngine,
   type EngineDiagnostics,
 } from "../engine/scramjet";
-import { getAccount, onAccount, type AosIdProfile } from "../services/account";
-import { checkEmailCode, getAxcid, markEmailVerified, sendEmailCode, type AxcidEntry } from "../services/axcid";
 import { deleteCredential, useVault } from "../services/vault";
-import {
-  clearEngineSiteData,
-  isWebSessionBindingEnabled,
-  setWebSessionBindingEnabled,
-} from "../services/websession";
+import { clearEngineSiteData } from "../services/websession";
 type Pane = "appearance" | "wallpaper" | "dock" | "browser" | "account" | "general";
 
 const PANES: { id: Pane; label: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
@@ -32,7 +26,7 @@ const PANES: { id: Pane; label: string; icon: React.ComponentType<{ size?: numbe
   { id: "wallpaper", label: "Fondo de pantalla", icon: Monitor },
   { id: "dock", label: "Dock y barra de menús", icon: Sun },
   { id: "browser", label: "Navegador", icon: Globe },
-  { id: "account", label: "Cuenta", icon: User },
+  { id: "account", label: "Perfil", icon: User },
   { id: "general", label: "General", icon: Info },
 ];
 
@@ -102,7 +96,7 @@ export default function SettingsApp({ win }: AppProps) {
           )}
           <div>
             <p className="text-[12.5px] font-semibold text-neutral-800 dark:text-neutral-100">{settings.userName}</p>
-            <p className="text-[10px] text-neutral-400">Cuenta local de axcsOS</p>
+            <p className="text-[10px] text-neutral-400">Perfil local · sin cuentas</p>
           </div>
         </div>
         <div className="px-2 pt-1">
@@ -372,30 +366,13 @@ export default function SettingsApp({ win }: AppProps) {
   );
 }
 
-/* ================= panel Cuenta ================= */
+/* ================= panel Perfil (sin cuentas) ================= */
 
-/* Contraseñas guardadas (bóveda AES-256) + sesión web ligada al perfil */
+/* Contraseñas guardadas (bóveda AES-256) + datos de navegación */
 function VaultCard() {
   const notify = useOS((s) => s.notify);
-  const session = useOS((s) => s.session);
   const entries = useVault();
-  const [binding, setBinding] = useState(true);
   const [clearing, setClearing] = useState(false);
-
-  useEffect(() => {
-    setBinding(isWebSessionBindingEnabled());
-  }, []);
-
-  const toggleBinding = () => {
-    const next = !binding;
-    setWebSessionBindingEnabled(next);
-    setBinding(next);
-    notify(
-      "settings",
-      "Sesiones del navegador",
-      next ? "Las cookies del motor quedan ligadas a tu cuenta: al cambiar de cuenta, el navegador se reinicia y se limpian" : "Las cookies del motor se comparten entre cuentas (comportamiento clásico)",
-    );
-  };
 
   const clearNow = async () => {
     if (clearing) return;
@@ -446,22 +423,13 @@ function VaultCard() {
       </Row>
       <Row>
         <div className="min-w-0 flex-1">
-          <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Sesiones ligadas a la cuenta{session ? ` «${session.username}»` : ""}</p>
+          <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Datos de navegación del motor</p>
           <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
-            Las cookies de navegación se asocian a tu cuenta: al volver a abrir el navegador, las páginas siguen con la
-            sesión iniciada; si entra OTRA cuenta en este dispositivo, el navegador se reinicia y sus datos se borran de
-            verdad (nada se hereda entre perfiles). El borrado manual también reinicia: es la única forma real de
-            liberar la base del motor.
+            Las cookies de los sitios que visitas viven en este dispositivo: al volver a abrir el navegador, las páginas
+            mantienen la sesión iniciada. El borrado real deja la base del motor limpia (el navegador se reinicia para
+            liberarla).
           </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              onClick={toggleBinding}
-              className={`rounded-md px-3 py-1.5 text-[11px] font-medium transition ${
-                binding ? "bg-[var(--accent-os)] text-white hover:opacity-90" : "border border-black/10 text-neutral-600 hover:bg-black/5 dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/10"
-              }`}
-            >
-              {binding ? "Ligadas a la cuenta ✓ (tocar para desactivar)" : "Desactivado: cookies compartidas (tocar para ligar)"}
-            </button>
+          <div className="mt-2">
             <button
               onClick={() => void clearNow()}
               disabled={clearing}
@@ -476,300 +444,55 @@ function VaultCard() {
   );
 }
 
-/* AXC ID: correo verificado → sesión persistente con cookie + entrada por código */
-function AxcIdCard() {
-  const session = useOS((s) => s.session);
-  const logout = useOS((s) => s.logout);
-  const notify = useOS((s) => s.notify);
-  const [entry, setEntry] = useState<AxcidEntry | null>(null);
-  const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  const reload = () => {
-    if (!session) return;
-    const e = getAxcid(session.accountId);
-    setEntry(e);
-    setEmail(e?.email ?? "");
-  };
-  useEffect(() => {
-    reload();
-    setSent(false);
-    setCode("");
-    setMsg("");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.accountId]);
-
-  if (!session) {
-    return (
-      <Card title="AXC ID · correo">
-        <Row>
-          <div className="min-w-0 flex-1">
-            <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Sin sesión iniciada</p>
-            <p className="text-[10.5px] text-neutral-400">Inicia sesión con tu cuenta para gestionar tu correo AXC ID.</p>
-          </div>
-        </Row>
-      </Card>
-    );
-  }
-
-  const send = async () => {
-    if (busy) return;
-    setBusy(true);
-    setMsg("");
-    try {
-      const r = await sendEmailCode(email);
-      setMsg(r.detail);
-      if (r.sent) setSent(true);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const verify = async () => {
-    if (busy) return;
-    setBusy(true);
-    setMsg("");
-    try {
-      const c = await checkEmailCode(code);
-      if (!c.ok) {
-        setMsg(c.detail ?? "Código incorrecto.");
-        return;
-      }
-      markEmailVerified(session.accountId, c.email ?? email);
-      reload();
-      setSent(false);
-      setCode("");
-      notify("settings", "Correo verificado", "Ya puedes entrar con un código a ese correo, sin contraseña.");
-      setMsg("");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Card title="AXC ID · tu correo">
-      <Row>
-        <div className="min-w-0 flex-1">
-          <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">
-            Correo de la cuenta «{session.username}»
-          </p>
-          <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
-            {entry?.verified
-              ? "Verificado ✓ — es el correo que el Navegador rellena por ti al iniciar sesión en la web, y al que puedes entrar sin contraseña desde la pantalla de inicio."
-              : "Pon el correo que YA TIENES (Gmail, Outlook, el que sea): te llega un código de 6 dígitos y, al verificarlo, el Navegador lo usará para rellenar tus inicios de sesión en las páginas. «Recordarme» en la pantalla de inicio funciona igual, con o sin correo."}
-          </p>
-          <div className="mt-2 flex gap-2">
-            <input
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                setMsg("");
-              }}
-              disabled={entry?.verified || sent}
-              placeholder="tu correo"
-              type="email"
-              className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-2.5 py-1.5 text-[11.5px] text-neutral-700 outline-none focus:ring-2 focus:ring-[var(--accent-os)]/40 disabled:opacity-70 dark:border-white/15 dark:bg-neutral-800 dark:text-neutral-100"
-            />
-            {!entry?.verified &&
-              (sent ? (
-                <button
-                  onClick={() => void verify()}
-                  disabled={busy || code.length < 6}
-                  className="shrink-0 rounded-md bg-[var(--accent-os)] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                >
-                  Verificar
-                </button>
-              ) : (
-                <button
-                  onClick={() => void send()}
-                  disabled={busy || !email.includes("@")}
-                  className="shrink-0 rounded-md bg-[var(--accent-os)] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:opacity-90 disabled:opacity-50"
-                >
-                  {busy ? "Enviando…" : "Enviar código"}
-                </button>
-              ))}
-          </div>
-          {sent && !entry?.verified && (
-            <div className="mt-2 flex gap-2">
-              <input
-                value={code}
-                onChange={(e) => {
-                  setCode(e.target.value.replace(/\D/g, "").slice(0, 6));
-                  setMsg("");
-                }}
-                placeholder="código de 6 dígitos"
-                inputMode="numeric"
-                className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-2.5 py-1.5 text-[11.5px] tracking-[0.3em] text-neutral-700 outline-none focus:ring-2 focus:ring-[var(--accent-os)]/40 dark:border-white/15 dark:bg-neutral-800 dark:text-neutral-100"
-              />
-              <button
-                onClick={() => {
-                  setSent(false);
-                  setCode("");
-                  setMsg("");
-                }}
-                className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-[11px] font-medium text-neutral-600 transition hover:bg-black/5 dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/10"
-              >
-                Reenviar
-              </button>
-            </div>
-          )}
-          {msg && <p className="mt-2 text-[10.5px] leading-relaxed text-amber-600 dark:text-amber-400">{msg}</p>}
-          {entry?.verified && (
-            <p className="mt-1.5 text-[10px] leading-relaxed text-neutral-400">
-              El código se envía por el servidor (/api/auth/send-otp): usa Resend si hay RESEND_API_KEY configurada y,
-              si no, FormSubmit (gratuito; la primera vez pide activar su enlace desde tu correo). Las contraseñas que
-              Safari te ofrezca guardar viven cifradas con AES-256 en este dispositivo (ver «Contraseñas y
-              autocompletado» aquí abajo).
-            </p>
-          )}
-        </div>
-        <span
-          className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-            entry?.verified ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : "bg-black/5 text-neutral-400 dark:bg-white/10"
-          }`}
-        >
-          {entry?.verified ? "verificado" : "sin verificar"}
-        </span>
-      </Row>
-      <Row>
-        <div className="min-w-0">
-          <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Sesión en este dispositivo</p>
-          <p className="text-[10.5px] text-neutral-400">Al cerrar sesión se borra la cookie recordada y volverá a pedirse la contraseña.</p>
-        </div>
-        <button
-          onClick={() => logout()}
-          className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-[11px] font-medium text-neutral-600 transition hover:bg-black/5 dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/10"
-        >
-          Cerrar sesión
-        </button>
-      </Row>
-    </Card>
-  );
-}
-
+/* Sin cuentas: el perfil es local — nombre, foto y sesión de este dispositivo */
 function AccountPane() {
   const settings = useOS((s) => s.settings);
-  const update = useOS((s) => s.updateSettings);
-  const notify = useOS((s) => s.notify);
-  const openApp = useOS((s) => s.openApp);
-  const [account, setAccount] = useState<AosIdProfile | null>(null);
-  const [ready, setReady] = useState(false);
-  const [name, setName] = useState("");
-
-  useEffect(() => {
-    const acc = getAccount();
-    setAccount(acc);
-    setName(acc?.name ?? "");
-    setReady(true);
-    return onAccount((p) => {
-      setAccount(p);
-      setName(p?.name ?? "");
-    });
-  }, []);
-
-  const saveName = () => {
-    if (!account) return;
-    const trimmed = name.trim();
-    if (!trimmed || trimmed === account.name) return;
-    import("../services/account").then((m) => {
-      m.updateProfile({ name: trimmed });
-      update({ userName: trimmed });
-      notify("settings", "Cuenta axcsOS", "Nombre actualizado");
-    });
-  };
-
-  if (!ready) return <div className="p-6" />;
+  const session = useOS((s) => s.session);
+  const logout = useOS((s) => s.logout);
 
   return (
     <>
-      <Card title="axcsOS ID">
-        {account ? (
-          <>
-            <Row>
-              <div className="flex min-w-0 flex-1 items-center gap-3">
-                {account.avatar ? (
-                  <img src={account.avatar} alt="" className="h-12 w-12 shrink-0 rounded-full object-cover" />
-                ) : (
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#25d366] to-[#128c7e] text-[17px] font-bold text-white">
-                    {account.name[0]?.toUpperCase() ?? "A"}
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[13px] font-semibold text-neutral-800 dark:text-neutral-100">{account.name}</p>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard?.writeText(`@${account.id}`);
-                      notify("settings", "ID copiado", `@${account.id} está en el portapapeles`);
-                    }}
-                    className="text-[10.5px] text-neutral-400 transition hover:text-[var(--accent-os)]"
-                    title="Copiar ID"
-                  >
-                    @{account.id} · copiar
-                  </button>
-                  <p className="text-[10px] text-neutral-400">Cuenta del sistema · usada por Mensajes y llamadas</p>
-                </div>
-                <span className="shrink-0 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">activa</span>
+      <Card title="Perfil de este dispositivo">
+        <Row>
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            {settings.avatar ? (
+              <img src={settings.avatar} alt="" className="h-12 w-12 shrink-0 rounded-full object-cover" />
+            ) : (
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-cyan-400 via-indigo-400 to-fuchsia-400 text-[17px] font-bold text-white">
+                {(session?.username ?? settings.userName)[0]?.toUpperCase() ?? "U"}
               </div>
-            </Row>
-            <Row>
-              <div className="min-w-0 flex-1">
-                <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Nombre visible</p>
-                <div className="mt-1.5 flex gap-2">
-                  <input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="min-w-0 flex-1 rounded-md border border-black/10 bg-white px-2.5 py-1.5 text-[11.5px] text-neutral-700 outline-none focus:ring-2 focus:ring-[var(--accent-os)]/40 dark:border-white/15 dark:bg-neutral-800 dark:text-neutral-100"
-                  />
-                  <button onClick={saveName} className="shrink-0 rounded-md bg-[var(--accent-os)] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:opacity-90">
-                    Guardar
-                  </button>
-                </div>
-              </div>
-            </Row>
-            <Row>
-              <div className="min-w-0">
-                <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Perfil completo</p>
-                <p className="text-[10.5px] text-neutral-400">Foto, info y estado se gestionan en Mensajes → Mi perfil</p>
-              </div>
-              <button
-                onClick={() => openApp("messages")}
-                className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-[11px] font-medium text-neutral-600 transition hover:bg-black/5 dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/10"
-              >
-                Abrir Mensajes
-              </button>
-            </Row>
-          </>
-        ) : (
-          <Row>
+            )}
             <div className="min-w-0 flex-1">
-              <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Sin cuenta todavía</p>
-              <p className="text-[10.5px] leading-relaxed text-neutral-400">
-                El axcsOS ID es la cuenta del sistema: da identidad a Mensajes, llamadas y grupos con cifrado de extremo
-                a extremo. Se crea en este dispositivo en segundos y no requiere configurar nada.
+              <p className="truncate text-[13px] font-semibold text-neutral-800 dark:text-neutral-100">
+                {session?.username ?? settings.userName}
               </p>
+              <p className="text-[10px] text-neutral-400">Sesión local · sin cuentas ni contraseñas</p>
             </div>
-            <button
-              onClick={() => openApp("messages")}
-              className="shrink-0 rounded-md bg-[var(--accent-os)] px-3 py-1.5 text-[11px] font-semibold text-white transition hover:opacity-90"
-            >
-              Crear cuenta
-            </button>
-          </Row>
-        )}
+          </div>
+        </Row>
+        <Row>
+          <div className="min-w-0 flex-1">
+            <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Sin cuentas, como antes</p>
+            <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
+              Entras a axcsOS escribiendo cualquier cosa en la pantalla de inicio. Tu perfil (nombre y foto) vive solo en
+              este navegador: puedes editarlo en General → Perfil.
+            </p>
+          </div>
+        </Row>
+        <Row>
+          <div className="min-w-0">
+            <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Sesión</p>
+            <p className="text-[10.5px] text-neutral-400">Cierra la sesión y vuelve a la pantalla de inicio.</p>
+          </div>
+          <button
+            onClick={() => logout()}
+            className="shrink-0 rounded-md border border-black/10 px-3 py-1.5 text-[11px] font-medium text-neutral-600 transition hover:bg-black/5 dark:border-white/15 dark:text-neutral-300 dark:hover:bg-white/10"
+          >
+            Cerrar sesión
+          </button>
+        </Row>
       </Card>
-      <AxcIdCard />
       <VaultCard />
-      <Card title="Cómo funciona tu cuenta">
-        <div className="px-4 py-3 text-[10.5px] leading-relaxed text-neutral-500 dark:text-neutral-400">
-          El axcsOS ID vive en este dispositivo: se genera un par de claves <b>ECDH P-256</b> y tu <b>@id</b> se deriva de la
-          huella de la clave pública. Los mensajes directos se cifran de extremo a extremo con <b>AES-GCM 256</b>; las
-          llamadas viajan P2P con <b>WebRTC</b>. No hay servidor de cuentas que configurar: la mensajería usa brokers
-          públicos MQTT con failover automático y todo lo demás queda en tu navegador.
-        </div>
-      </Card>
     </>
   );
 }
@@ -863,9 +586,14 @@ function BrowserPane() {
         <Row>
           <div className="min-w-0">
             <p className="text-[12.5px] text-neutral-700 dark:text-neutral-200">Motor de búsqueda</p>
-            <p className="text-[10.5px] text-neutral-400">Resultados reales mostrados dentro del Navegador; se abren por el motor integrado.</p>
+            <p className="mt-0.5 text-[10.5px] leading-relaxed text-neutral-400">
+              {browser.searchEngine === "google"
+                ? "Google: la búsqueda se abre en la página real de Google dentro del Navegador, cargada por el motor integrado (con su JavaScript de verdad)."
+                : "Resultados reales mostrados dentro del Navegador; se abren por el motor integrado."}
+            </p>
           </div>
           <div className="flex shrink-0 gap-2">
+            <ChoiceButton active={browser.searchEngine === "google"} onClick={() => updateBrowser({ searchEngine: "google" })} label="Google" />
             <ChoiceButton active={browser.searchEngine === "bing"} onClick={() => updateBrowser({ searchEngine: "bing" })} label="Bing" />
             <ChoiceButton active={browser.searchEngine === "searxng"} onClick={() => updateBrowser({ searchEngine: "searxng" })} label="SearXNG" />
           </div>

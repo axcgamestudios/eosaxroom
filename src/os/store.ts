@@ -2,8 +2,6 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { stopSessionGuard } from "./services/auth";
-import { clearStaySession } from "./services/axcid";
 import type {
   Bookmark,
   BrowserSettings,
@@ -57,7 +55,6 @@ interface OsStore {
   stage: Stage;
   booted: boolean;
   session: { accountId: string; username: string } | null;
-  kickMessage: string;
   windows: WindowState[];
   zTop: number;
   activeId: string | null;
@@ -82,8 +79,6 @@ interface OsStore {
   finishBoot: () => void;
   login: (account?: { id: string; username: string }) => void;
   logout: () => void;
-  logoutFromKick: (message: string) => void;
-  setKickMessage: (m: string) => void;
   lock: () => void;
 
   openApp: (appId: string, opts?: WindowOpenOptions) => string | null;
@@ -176,7 +171,6 @@ export const useOS = create<OsStore>()(
       stage: "boot",
       booted: false,
       session: null,
-      kickMessage: "",
       windows: [],
       zTop: 10,
       activeId: null,
@@ -230,25 +224,19 @@ export const useOS = create<OsStore>()(
       login: (account) => {
         set({
           stage: "desktop",
-          kickMessage: "",
           ...(account ? { session: { accountId: account.id, username: account.username }, settings: { ...get().settings, userName: account.username } } : {}),
         });
         // mantiene el motor de navegación propio (Render) caliente durante la sesión
         startWispKeepalive();
-        // sesión web ligada al perfil: las cookies del motor se asocian a ESTA
-        // cuenta — mismo perfil las conserva (sesiones persistentes), cambio de
-        // cuenta las borra (nada se hereda entre perfiles)
-        if (account?.id) {
-          void import("./services/websession").then((m) => m.bindEngineSessionToProfile(account.id)).catch(() => undefined);
-        }
+        // sesión web ligada al perfil LOCAL (sin cuentas): las cookies del
+        // motor se conservan entre arranques — las páginas mantienen su sesión
+        void import("./services/websession").then((m) => m.bindEngineSessionToProfile("local")).catch(() => undefined);
         const who = account?.username ?? get().settings.userName;
         setTimeout(() => {
           get().notify("finder", `Hola, ${who}`, "Sesión iniciada en axcsOS.");
         }, 900);
       },
       logout: () => {
-        stopSessionGuard(); // 1 dispositivo por cuenta: esta sesión deja de afirmarse
-        clearStaySession(); // la cookie de «no volver a iniciar sesión» se va con la sesión
         set({
           stage: "login",
           session: null,
@@ -260,22 +248,6 @@ export const useOS = create<OsStore>()(
           notifCenterOpen: false,
         });
       },
-      logoutFromKick: (message) => {
-        stopSessionGuard();
-        clearStaySession(); // la cuenta pasó a otro dispositivo: aquí ya no se recuerda
-        set({
-          stage: "login",
-          session: null,
-          kickMessage: message,
-          windows: [],
-          activeId: null,
-          spotlightOpen: false,
-          launchpadOpen: false,
-          controlCenterOpen: false,
-          notifCenterOpen: false,
-        });
-      },
-      setKickMessage: (m) => set({ kickMessage: m }),
       lock: () => set({ stage: "lock" }),
 
       openApp: (appId, opts) => {
@@ -596,8 +568,8 @@ export const useOS = create<OsStore>()(
             // persistido (p. ej. el demo público antiguo) se sustituye por el
             // motor propio del estudio configurado por el sistema
             wispUrl: defaultWisp(),
-            // migración: el valor antiguo "ddg" pasa a "bing"
-            searchEngine: p.browser?.searchEngine === "searxng" ? "searxng" : "bing",
+            // migración: el valor antiguo "ddg" pasa a "bing"; "google" y "searxng" se conservan
+            searchEngine: p.browser?.searchEngine === "google" ? "google" : p.browser?.searchEngine === "searxng" ? "searxng" : "bing",
           },
           settings: { ...current.settings, ...(p.settings ?? {}), wallpaper },
         };

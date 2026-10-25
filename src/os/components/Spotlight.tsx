@@ -43,6 +43,15 @@ function SpotlightPanel({ onClose }: { onClose: () => void }) {
   const results = useMemo<ResultItem[]>(() => {
     if (!q.trim()) return [];
     const lower = q.toLowerCase();
+    // motor de búsqueda activo (Ajustes → Navegador): Google usa su página real
+    const eng = useOS.getState().browser.searchEngine;
+    const engineLabel = eng === "google" ? "Google" : eng === "searxng" ? "SearXNG" : "Bing";
+    const searchUrl =
+      eng === "google"
+        ? `https://www.google.com/search?q=${encodeURIComponent(q)}`
+        : eng === "searxng"
+          ? `https://www.bing.com/search?q=${encodeURIComponent(q)}`
+          : `https://www.bing.com/search?q=${encodeURIComponent(q)}`;
     const list: ResultItem[] = [];
     allApps()
       .filter((a) => a.showInLaunchpad !== false && a.name.toLowerCase().includes(lower))
@@ -65,10 +74,10 @@ function SpotlightPanel({ onClose }: { onClose: () => void }) {
     list.push({
       id: "web",
       title: `Buscar «${q}» en la web`,
-      sub: "Búsqueda web",
+      sub: `Búsqueda web · ${engineLabel}`,
       icon: ImageDocIcon,
       run: () =>
-        openApp("safari", { payload: { url: `https://www.bing.com/search?q=${encodeURIComponent(q)}` } }),
+        openApp("safari", { payload: { url: searchUrl } }),
     });
     return list;
   }, [q, notes, openApp]);
