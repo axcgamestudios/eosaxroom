@@ -88,7 +88,7 @@ function PopupInner() {
     const root = document.documentElement;
     root.classList.toggle("dark", t.appearance === "dark");
     root.style.setProperty("--accent-os", t.accent);
-    document.title = valid ? `Ventana real · ${hostOf(url)} · axcsOS` : "Ventana real · axcsOS";
+    document.title = valid ? `Ventana real · ${hostOf(url)} · Google Classroom` : "Ventana real · Google Classroom";
   }, [valid, url]);
 
   /* ---------- diagnóstico del motor ---------- */
@@ -115,7 +115,7 @@ function PopupInner() {
         frameRef.current = frame;
         frame.addEventListener("urlchange", (e) => {
           const u = (e as unknown as { url: string }).url;
-          if (u && hostOf(u)) document.title = `Ventana real · ${hostOf(u)} · axcsOS`;
+          if (u && hostOf(u)) document.title = `Ventana real · ${hostOf(u)} · Google Classroom`;
         });
       }
       frame.go(target);
