@@ -108,6 +108,8 @@ export interface MirrorFileStart { t: "file-start"; name: string; size: number; 
 export interface MirrorFileEnd { t: "file-end" }
 export interface MirrorFileProgress { t: "file-progress"; sent: number }
 export interface MirrorAck { t: "ack" }
+export interface MirrorPing { t: "ping" }
+export interface MirrorPong { t: "pong" }
 
 export type MirrorControl =
   | MirrorHello
@@ -116,7 +118,9 @@ export type MirrorControl =
   | MirrorFileStart
   | MirrorFileEnd
   | MirrorFileProgress
-  | MirrorAck;
+  | MirrorAck
+  | MirrorPing
+  | MirrorPong;
 
 export const CHUNK_SIZE = 64 * 1024; // 64 KiB por mensaje del canal de datos
 export const MAX_FILE_BYTES = 512 * 1024 * 1024; // 512 MB de tope razonable

@@ -20,7 +20,7 @@
    ============================================================ */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Camera, MonitorSmartphone, Square, Upload } from "lucide-react";
+import { Camera, AlertTriangle, Loader2, MonitorSmartphone, Square, Upload } from "lucide-react";
 import {
   CHUNK_SIZE,
   MAX_FILE_BYTES,
@@ -34,6 +34,7 @@ import {
   peerCommonOpts,
   type MirrorControl,
   type MirrorFail,
+  type MirrorPong,
   type PeerDataConn,
   type PeerInstance,
 } from "@/os/services/mirror";
@@ -48,6 +49,9 @@ const MAX_TRIES = 5; // intentos totales por «Conectar»
 const RETRY_WAIT_MS = 3500; // entre intentos
 const SIGNAL_TIMEOUT = 9000; // abrir el propio peer (señalización)
 const CHANNEL_TIMEOUT = 16000; // abrir el canal de datos tras conectar
+const GM_TIMEOUT = 15000; // getUserMedia: en iPhone puede colgarse tras 2º plano
+const PING_EVERY = 5000; // latido cuando la pestaña está visible y conectada
+const PONG_STALE = 18000; // sin respuesta → conexión zombi
 
 const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
@@ -60,6 +64,9 @@ export default function MirrorSender() {
   const [tryNo, setTryNo] = useState(1);
   const [mode, setMode] = useState<Mode>("idle");
   const [sendProgress, setSendProgress] = useState<{ sent: number; total: number } | null>(null);
+  /* feedback INMEDIATO al tocar una opción (cámara/pantalla): sin esto, un
+   * fallo silencioso de getUserMedia parecía «no pasa nada al picar». */
+  const [acquiring, setAcquiring] = useState<"" | "Cámara" | "Pantalla">("");
 
   const peerRef = useRef<PeerInstance | null>(null);
   const connRef = useRef<PeerDataConn | null>(null);
@@ -67,11 +74,18 @@ export default function MirrorSender() {
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const abortRef = useRef(false); // cancela el bucle de reintentos
+  const connectTokenRef = useRef(0); // invalida bucles de connect() obsoletos
+  const codeRef = useRef(""); // código actual (para auto-reconectar)
+  const modeRef = useRef<Mode>("idle");
+  const connUiRef = useRef<Conn>("setup");
+  const lastPongRef = useRef(Date.now()); // latido: última señal de vida del receptor
 
   /* ---------- conexión con la pantalla del OS ---------- */
 
   const cleanup = useCallback(() => {
     abortRef.current = true; // detiene el bucle si sigue vivo
+    connectTokenRef.current += 1; // y también vía token (carreras)
+    setAcquiring("");
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     try { callRef.current?.close(); } catch { /* ignore */ }
@@ -154,7 +168,10 @@ export default function MirrorSender() {
       setErr("");
       setConn("connecting");
       setCode(c);
+      codeRef.current = c;
+      lastPongRef.current = Date.now();
       abortRef.current = false;
+      const myTok = ++connectTokenRef.current;
 
       // descartar un intento anterior (peer muerto): sus handlers no deben
       // colarse en este intento. Así «Reintentar» siempre empieza limpio.
@@ -167,14 +184,21 @@ export default function MirrorSender() {
       // (pestaña en 2º plano del mismo iPhone, red que tarda en liberar
       // el ID caído, servicio inestable un momento…).
       for (let i = 1; i <= MAX_TRIES; i++) {
-        if (abortRef.current) return;
+        if (abortRef.current || myTok !== connectTokenRef.current) return;
         setTryNo(i);
         const out = await oneShot(c);
-        if (abortRef.current) return;
+        if (abortRef.current || myTok !== connectTokenRef.current) return;
         if (out === "open") {
           setConn("ready");
-          const d = connRef.current;
+          // oneShot asigna connRef.current al canal nuevo; TS no lo infiere
+          // (el ref se puso a null arriba), por eso el cast explícito
+          const d = connRef.current as PeerDataConn | null;
           d?.send({ t: "hello", ua: navigator.userAgent } satisfies MirrorControl);
+          // latido: el receptor contesta {t:"pong"} → sabemos que el canal vivo
+          d?.on("data", (raw: unknown) => {
+            const m = raw as MirrorPong | null;
+            if (m && typeof m === "object" && (m as { t?: string }).t === "pong") lastPongRef.current = Date.now();
+          });
           d?.on("close", () => {
             setConn("error");
             setErr("La pantalla receptora cerró la conexión.");
@@ -210,6 +234,50 @@ export default function MirrorSender() {
 
   useEffect(() => () => cleanup(), [cleanup]);
 
+  /* refs espejo del estado (para el latido sin re-suscribir efectos) */
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { connUiRef.current = conn; }, [conn]);
+
+  /* ---------- latido: detecta la conexión muerta y la AUTO-REPARA ----------
+     iOS suspende la pestaña en 2º plano: el canal muere EN SILENCIO (sin
+     "close") y al volver los botones hacían return silencioso → «picas y no
+     pasa nada». Ahora: ping cada 5 s; sin pong en 18 s o canal cerrado →
+     se reconecta con el MISMO código (la pantalla del aula lo conserva). */
+  useEffect(() => {
+    const check = () => {
+      if (document.visibilityState !== "visible") return;
+      if (connUiRef.current !== "ready" || modeRef.current === "sending") return;
+      const d = connRef.current;
+      const dead = !d || !d.open || Date.now() - lastPongRef.current > PONG_STALE;
+      if (!dead) {
+        try { d?.send({ t: "ping" } satisfies MirrorControl); } catch { /* close lo caza */ }
+        return;
+      }
+      const c = codeRef.current;
+      if (!c) return;
+      if (modeRef.current === "live") {
+        // el vídeo P2P puede seguir vivo aunque el control haya muerto: no
+        // cortar la retransmisión, solo avisar (al Detener se reconecta)
+        setErr("Se perdió la conexión de control (pestaña en 2º plano). Si el vídeo llegó congelado a la pantalla, pulsa «Detener y elegir otra cosa»: se reconectará sola.");
+        return;
+      }
+      setErr("Se perdió la conexión al cambiar de pestaña. Reconectando con el mismo código…");
+      void connect(c);
+    };
+    const id = window.setInterval(check, PING_EVERY);
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        lastPongRef.current = Date.now(); // margen fresco al volver
+        check();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [connect]);
+
   /* ---------- retransmitir un MediaStream ---------- */
 
   const stopLive = useCallback(() => {
@@ -226,56 +294,85 @@ export default function MirrorSender() {
     async (label: string) => {
       const conn0 = connRef.current;
       const peer0 = peerRef.current;
-      if (!conn0 || !peer0 || !conn0.open) return;
-
-      // cortar una retransmisión anterior
-      if (streamRef.current) stopLive();
-
-      let stream: MediaStream;
+      const acquiringLabel = label === "Pantalla" ? "Pantalla" : "Cámara";
+      setAcquiring(acquiringLabel);
       try {
-        if (label === "Pantalla") {
-          stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        } else {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-            audio: { echoCancellation: true, noiseSuppression: true },
-          });
+        // conexión muerta (pestaña en 2º plano, receptor caído): NUNCA más un
+        // return silencioso — se reconecta con el mismo código y se avisa.
+        if (!conn0 || !peer0 || !conn0.open) {
+          setErr("La conexión con la pantalla se había caído (típico tras cambiar de pestaña en el mismo iPhone). Reconectando con el mismo código…");
+          void connect(codeRef.current);
+          return;
         }
+
+        // cortar una retransmisión anterior
+        if (streamRef.current) stopLive();
+
+        let stream: MediaStream;
+        const acquire =
+          label === "Pantalla"
+            ? navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
+            : navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: { echoCancellation: true, noiseSuppression: true },
+              });
+        // iOS puede dejar getUserMedia colgado tras volver de 2º plano: con
+        // tope, el botón siempre acaba respondiendo (antes: giro eterno).
+        stream = await Promise.race([
+          acquire,
+          sleep(GM_TIMEOUT).then(() => {
+            throw new Error("la cámara tardó más de 15 s en responder (suele pasar al volver de segundo plano): recarga la página y reintenta");
+          }),
+        ]).catch((e: Error) => {
+          const name = (e as Error & { name?: string }).name ?? "";
+          const detail = String((e as Error).message ?? e);
+          const hint =
+            name === "NotAllowedError"
+              ? " Permite la cámara: Ajustes › Safari › Cámara (o Ajustes ›[esta página web]› Cámara)."
+              : "";
+          throw new Error(`No se pudo acceder a ${label === "Pantalla" ? "la pantalla" : "la cámara"}: ${detail}.${hint}`);
+        });
+        setErr("");
+        streamRef.current = stream;
+
+        const call = peer0.call(mirrorPeerId(codeRef.current), stream);
+        callRef.current = call;
+        call.on("close", () => {
+          streamRef.current?.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+          setMode((m) => (m === "live" ? "idle" : m));
+        });
+
+        conn0.send({ t: "live-start", label } satisfies MirrorControl);
+        setMode("live");
+
+        // preview local (sin sonido para no acoplar)
+        if (previewRef.current) {
+          previewRef.current.srcObject = stream;
+          previewRef.current.play().catch(() => { /* ignore */ });
+        }
+
+        // si se detiene desde el diálogo nativo del navegador
+        stream.getVideoTracks()[0]?.addEventListener("ended", stopLive);
       } catch (e) {
-        setErr(`No se pudo acceder a ${label === "Pantalla" ? "la pantalla" : "la cámara"}: ${String((e as Error).message ?? e)}`);
-        return;
+        setErr(String((e as Error).message ?? e));
+      } finally {
+        setAcquiring("");
       }
-      setErr("");
-      streamRef.current = stream;
-
-      const call = peer0.call(mirrorPeerId(code), stream);
-      callRef.current = call;
-      call.on("close", () => {
-        streamRef.current?.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
-        setMode((m) => (m === "live" ? "idle" : m));
-      });
-
-      conn0.send({ t: "live-start", label } satisfies MirrorControl);
-      setMode("live");
-
-      // preview local (sin sonido para no acoplar)
-      if (previewRef.current) {
-        previewRef.current.srcObject = stream;
-        previewRef.current.play().catch(() => { /* ignore */ });
-      }
-
-      // si se detiene desde el diálogo nativo del navegador
-      stream.getVideoTracks()[0]?.addEventListener("ended", stopLive);
     },
-    [code, stopLive]
+    [stopLive, connect]
   );
 
   /* ---------- enviar una grabación (fichero) ---------- */
 
   const sendFile = useCallback(async (f: File) => {
     const conn0 = connRef.current;
-    if (!conn0 || !f) return;
+    if (!f) return;
+    // igual que goLive: sin conexión no se calla — reconecta y avisa
+    if (!conn0 || !conn0.open) {
+      setErr("La conexión se había caído (pestaña en 2º plano). Reconecta abajo con el mismo código y vuelve a enviar el vídeo.");
+      return;
+    }
     if (f.size > MAX_FILE_BYTES) {
       setErr(`El vídeo pesa ${fmtBytes(f.size)}: el tope es ${fmtBytes(MAX_FILE_BYTES)}. Recórtalo en Fotos antes de enviarlo.`);
       return;
@@ -379,6 +476,14 @@ export default function MirrorSender() {
         ) : (
           /* -------- conectado: modos -------- */
           <section className="space-y-3">
+            {/* antes este estado NO pintaba los errores: los fallos de cámara
+                o de conexión eran invisibles → «pico y no pasa nada» */}
+            {err && (
+              <div className="flex items-start gap-2.5 rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-[11.5px] leading-relaxed text-red-200">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span>{err}</span>
+              </div>
+            )}
             {mode === "live" ? (
               <div className="overflow-hidden rounded-3xl border border-red-400/30 bg-black">
                 <div className="relative">
@@ -408,13 +513,14 @@ export default function MirrorSender() {
               <>
                 <button
                   onClick={() => void goLive("Cámara")}
-                  className="flex w-full items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-left transition active:scale-[0.99] active:bg-white/10"
+                  disabled={!!acquiring}
+                  className="flex w-full items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-left transition active:scale-[0.99] active:bg-white/10 disabled:opacity-60"
                 >
                   <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-500/20 ring-1 ring-sky-400/40">
-                    <Camera size={22} className="text-sky-300" />
+                    {acquiring === "Cámara" ? <Loader2 size={22} className="animate-spin text-sky-300" /> : <Camera size={22} className="text-sky-300" />}
                   </span>
                   <span>
-                    <span className="block text-[15px] font-bold">Cámara en vivo</span>
+                    <span className="block text-[15px] font-bold">{acquiring === "Cámara" ? "Abriendo cámara…" : "Cámara en vivo"}</span>
                     <span className="block text-[11.5px] leading-snug text-neutral-400">Videollamada con la pantalla del aula, con sonido</span>
                   </span>
                 </button>
@@ -422,13 +528,14 @@ export default function MirrorSender() {
                 {screenOK && (
                   <button
                     onClick={() => void goLive("Pantalla")}
-                    className="flex w-full items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-left transition active:scale-[0.99] active:bg-white/10"
+                    disabled={!!acquiring}
+                    className="flex w-full items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.05] p-5 text-left transition active:scale-[0.99] active:bg-white/10 disabled:opacity-60"
                   >
                     <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/20 ring-1 ring-emerald-400/40">
-                      <MonitorSmartphone size={22} className="text-emerald-300" />
+                      {acquiring === "Pantalla" ? <Loader2 size={22} className="animate-spin text-emerald-300" /> : <MonitorSmartphone size={22} className="text-emerald-300" />}
                     </span>
                     <span>
-                      <span className="block text-[15px] font-bold">Compartir pantalla</span>
+                      <span className="block text-[15px] font-bold">{acquiring === "Pantalla" ? "Abriendo pantalla…" : "Compartir pantalla"}</span>
                       <span className="block text-[11.5px] leading-snug text-neutral-400">Duplica tu pantalla en directo</span>
                     </span>
                   </button>
@@ -447,7 +554,7 @@ export default function MirrorSender() {
                   <input
                     type="file"
                     accept="video/*"
-                    className="hidden"
+                    className="sr-only"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) void sendFile(f);
