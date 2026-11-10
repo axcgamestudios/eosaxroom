@@ -41,6 +41,57 @@ export function mirrorPeerId(code: string): string {
   return `axcs-mirror-${code}`;
 }
 
+/* --------- WebRTC: servidores ICE (STUN + TURN público) ---------
+   Sin TURN, una red restrictiva (cortafuegos del aula, NAT simétrica)
+   deja pasar la señalización pero nunca abre el canal directo: la
+   conexión «se queda girando» hasta el timeout. Open Relay
+   (metered.ca, gratuito 20 GB/mes) escucha en 80 y 443 — puertos que
+   casi ningún cortafuegos bloquea — en UDP y TCP. */
+export const ICE_SERVERS: Array<{ urls: string; username?: string; credential?: string }> = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "turn:openrelay.metered.ca:80", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayproject" },
+  { urls: "turn:staticauth.openrelay.metered.ca:443?transport=tcp", username: "openrelayproject", credential: "openrelayprojectsecret" },
+];
+
+/** Opciones comunes de Peer para ambos extremos (TURN incluido). */
+export function peerCommonOpts(): Record<string, unknown> {
+  return { debug: 0, config: { iceServers: ICE_SERVERS } };
+}
+
+/** Categorías de fallo de un intento de conexión del emisor. */
+export type MirrorFail =
+  | "gone" // la pantalla del aula no está registrada con ese código
+  | "signal" // no se pudo alcanzar 0.peerjs.com (red/bloqueo)
+  | "channel"; // señalización OK pero el canal directo (ICE) no abrió
+
+/** Mensaje final de cada causa, para no culpar al código cuando la
+ *  causa es otra (antes todo acababa en «no se encontró el código»). */
+export function mirrorFailMessage(f: MirrorFail): string {
+  switch (f) {
+    case "gone":
+      return "No se encontró la pantalla del aula con ese código. Comprueba que la app «Duplicar pantalla» siga abierta con el MISMO código y reintenta. Ojo: si abriste el aula en este mismo iPhone, ábrela un momento (cambia de pestaña) para reactivarla y vuelve aquí.";
+    case "signal":
+      return "No se pudo alcanzar el servicio de emparejamiento (0.peerjs.com). Suele ser la red del aula o del móvil bloqueándolo: prueba con datos móviles, o pide que la red permita WebSockets salientes.";
+    case "channel":
+      return "La pantalla se encontró, pero la red no dejó abrir la conexión directa (WebRTC): típico de redes escolares restrictivas. Prueba desde otra red (p. ej. datos móviles) — esto afecta también al envío de grabaciones.";
+  }
+}
+
+/** ¿El error de PeerJS es un fallo de señalización (no del código)? */
+export function isSignalingError(type: string): boolean {
+  return (
+    type === "network" ||
+    type === "server-error" ||
+    type === "socket-error" ||
+    type === "socket-closed" ||
+    type === "ssl-unavailable" ||
+    type === "browser-incompatible"
+  );
+}
+
 /** URL absoluta de la página emisora (funciona en Pages y en dev). */
 export function mirrorSenderUrl(code: string): string {
   const base = new URL("mirror/", document.baseURI);
