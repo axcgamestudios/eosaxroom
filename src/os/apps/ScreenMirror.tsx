@@ -51,6 +51,7 @@ export default function ScreenMirrorApp(_props: AppProps) {
   const [signal, setSignal] = useState<"ok" | "off" | "err">("ok");
 
   const peerRef = useRef<PeerInstance | null>(null);
+  const offlineRef = useRef(false); // peer desconectado de la señalización
   const connRef = useRef<PeerDataConn | null>(null);
   const callRef = useRef<PeerMediaConn | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -90,8 +91,13 @@ export default function ScreenMirrorApp(_props: AppProps) {
       const peer = new Peer(mirrorPeerId(c), { debug: 0 } as Record<string, unknown>);
       peerRef.current = peer;
 
-      peer.on("open", () => setPhase((p) => (p.s === "boot" ? { s: "ready" } : p)));
+      peer.on("open", () => {
+        offlineRef.current = false;
+        setSignal("ok");
+        setPhase((p) => (p.s === "boot" ? { s: "ready" } : p));
+      });
       peer.on("disconnected", () => {
+        offlineRef.current = true;
         setSignal("off");
         try { peer.reconnect(); } catch { /* ignore */ }
       });
@@ -153,7 +159,16 @@ export default function ScreenMirrorApp(_props: AppProps) {
 
   useEffect(() => {
     void spin();
+    // iOS/Android suspenden pestañas en 2º plano: el socket de señalización
+    // se cae en silencio. Al volver a primer plano, reconectar si hace falta.
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && offlineRef.current && peerRef.current) {
+        try { peerRef.current.reconnect(); } catch { /* ignore */ }
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
+      document.removeEventListener("visibilitychange", onVisible);
       try { callRef.current?.close(); } catch { /* ignore */ }
       try { connRef.current?.close(); } catch { /* ignore */ }
       try { peerRef.current?.destroy(); } catch { /* ignore */ }

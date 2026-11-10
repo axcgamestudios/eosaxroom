@@ -79,6 +79,14 @@ export default function MirrorSender() {
       setErr("");
       setConn("connecting");
       setCode(c);
+
+      // descartar un intento anterior (peer muerto): sus handlers no deben
+      // colarse en este intento. Así "Reintentar" siempre empieza limpio.
+      try { peerRef.current?.destroy(); } catch { /* ignore */ }
+      peerRef.current = null;
+      connRef.current = null;
+      callRef.current = null;
+
       try {
         const Peer = await loadPeerClass();
         const peer = new Peer({ debug: 0 } as Record<string, unknown>); // ID anónimo asignado por la nube
@@ -88,7 +96,7 @@ export default function MirrorSender() {
           setConn("error");
           setErr("No se encontró la pantalla con ese código. ¿Sigue abierta la app «Duplicar pantalla»?");
           try { peer.destroy(); } catch { /* ignore */ }
-        }, 12000);
+        }, 18000);
 
         peer.on("error", (e: Error & { type?: string }) => {
           if (e.type === "peer-unavailable") {
@@ -258,10 +266,17 @@ export default function MirrorSender() {
                 onClick={() => void connect(input)}
                 className="shrink-0 rounded-xl bg-sky-500 px-5 text-[13px] font-bold text-white transition active:bg-sky-400"
               >
-                Conectar
+                {conn === "error" ? "Reintentar" : "Conectar"}
               </button>
             </div>
-            {conn === "error" && <p className="mt-3 text-[11.5px] leading-relaxed text-red-300">{err}</p>}
+            {conn === "error" && (
+              <>
+                <p className="mt-3 text-[11.5px] leading-relaxed text-red-300">{err}</p>
+                <p className="mt-2 text-[10.5px] leading-relaxed text-neutral-500">
+                  Comprueba que en la pantalla del aula siga visible el mismo código. Si vuelve a pasar, cierra esta pestaña y vuelve a escanear el QR: a veces el móvil guarda la versión anterior de la página.
+                </p>
+              </>
+            )}
             <p className="mt-4 text-[11px] leading-relaxed text-neutral-500">
               El código aparece en grande dentro de la app <b className="text-neutral-300">Duplicar pantalla</b> del aula, junto a su código QR.
             </p>
