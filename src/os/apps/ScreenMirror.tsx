@@ -4,15 +4,19 @@
    Duplicar pantalla — receptora del OS (estilo AirPlay)
    ------------------------------------------------------------
    Al abrir la app: crea su punto de conexión (señalización
-   pública de PeerJS) y muestra CÓDIGO + QR + enlace. El iPhone
-   abre la página emisora (/mirror), se empareja con el código
-   y envía:
+   pública de PeerJS + TURN público de Open Relay) y muestra
+   CÓDIGO + QR + enlace. El iPhone abre la página emisora
+   (/mirror), se empareja con el código y envía:
      · Cámara en vivo (stream WebRTC con audio)
      · Grabaciones de pantalla (fichero por el canal de datos)
      · Pantalla en vivo (desde Mac/PC/Android; Apple no permite
        capturar la pantalla del iPhone desde Safari)
    peerjs se carga como UMD propio (public/vendor) y qrcode con
    import() dinámico: nada pesa en el arranque del sistema.
+
+   ROBUSTEZ: si la señalización se cae (pestaña en 2º plano del
+   mismo iPhone, red inestable), el punto se AUTO-REPARA con el
+   MISMO código — el QR/enlace que ya tienes sigue siendo válido.
    ============================================================ */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -22,9 +26,11 @@ import { useOS } from "../store";
 import {
   fmtBytes,
   genMirrorCode,
+  isSignalingError,
   loadPeerClass,
   mirrorPeerId,
   mirrorSenderUrl,
+  peerCommonOpts,
   type MirrorControl,
   type PeerDataConn,
   type PeerInstance,
@@ -38,6 +44,9 @@ type Phase =
   | { s: "live"; label: string } // retransmisión en vivo
   | { s: "file"; name: string; size: number; url: string } // grabación recibida
   | { s: "error"; msg: string };
+
+/* límites de auto-reparación (sin bucles infinitos) */
+const MAX_SIGNAL_RESPINS = 6; // re-spins con el mismo código tras fallos de señalización
 
 export default function ScreenMirrorApp(_props: AppProps) {
   const notify = useOS((s) => s.notify);
@@ -58,123 +67,9 @@ export default function ScreenMirrorApp(_props: AppProps) {
   const fileRef = useRef<{ name: string; size: number; mime: string; chunks: ArrayBuffer[]; got: number } | null>(null);
   const codeRef = useRef("");
   const busyRef = useRef(false); // ya hay un emisor aceptado
-
-  /* ---------- crear / recrear el punto de conexión ---------- */
-
-  const spin = useCallback(async () => {
-    // limpiar lo anterior
-    try { peerRef.current?.destroy(); } catch { /* ignore */ }
-    peerRef.current = null;
-    connRef.current = null;
-    callRef.current = null;
-    fileRef.current = null;
-    busyRef.current = false;
-    setFileProgress(null);
-    setPhase({ s: "boot" });
-    setSignal("ok");
-
-    const c = genMirrorCode();
-    codeRef.current = c;
-    setCode(c);
-    const url = mirrorSenderUrl(c);
-    setSenderUrl(url);
-    setCopied(false);
-
-    // QR en paralelo a la creación del peer (no bloquea la señal)
-    import("qrcode")
-      .then((m) => m.default.toDataURL(url, { margin: 1, width: 300, color: { dark: "#0b1220ff", light: "#ffffffff" } }))
-      .then((dataUrl: string) => setQr(dataUrl))
-      .catch(() => setQr(""));
-
-    try {
-      const Peer = await loadPeerClass();
-      const peer = new Peer(mirrorPeerId(c), { debug: 0 } as Record<string, unknown>);
-      peerRef.current = peer;
-
-      peer.on("open", () => {
-        offlineRef.current = false;
-        setSignal("ok");
-        setPhase((p) => (p.s === "boot" ? { s: "ready" } : p));
-      });
-      peer.on("disconnected", () => {
-        offlineRef.current = true;
-        setSignal("off");
-        try { peer.reconnect(); } catch { /* ignore */ }
-      });
-      peer.on("error", (err: Error & { type?: string }) => {
-        const type = err.type ?? "";
-        if (type === "unavailable-id") {
-          // colisión de código (rarísimo): regenerar
-          void spin();
-          return;
-        }
-        if (type === "peer-unavailable") return; // respuestas a conn fallidas
-        setSignal("err");
-        setPhase({ s: "error", msg: friendlyPeerError(type, err.message) });
-      });
-
-      /* ----- canal de datos: control + ficheros ----- */
-      peer.on("connection", (conn) => {
-        if (busyRef.current) {
-          // ya hay un emisor: esta conexión extra se descarta con aviso
-          try { conn.on("open", () => conn.send({ t: "ack", busy: true } satisfies Record<string, unknown>)); } catch { /* ignore */ }
-          setTimeout(() => { try { conn.close(); } catch { /* ignore */ } }, 800);
-          return;
-        }
-        busyRef.current = true;
-        connRef.current = conn;
-        conn.on("open", () => setPhase({ s: "connecting" }));
-        conn.on("data", (raw) => onData(raw as MirrorControl));
-        conn.on("close", () => onSenderGone("El iPhone se desconectó"));
-        conn.on("error", () => onSenderGone("Se perdió la conexión con el iPhone"));
-      });
-
-      /* ----- llamada multimedia: cámara / pantalla en vivo ----- */
-      peer.on("call", (call) => {
-        if (!busyRef.current) return; // solo de nuestro emisor
-        callRef.current = call;
-        call.answer(); // sin stream local: solo recibimos
-        call.on("stream", (remote) => {
-          setMuted(true);
-          setPhase((p) => (p.s === "live" ? p : { s: "live", label: p.s === "connecting" ? "iPhone" : "live" }));
-          requestAnimationFrame(() => {
-            const v = videoRef.current;
-            if (v) {
-              v.srcObject = remote as MediaStream;
-              v.play().catch(() => { /* autoplay silenciado siempre permitido */ });
-            }
-          });
-        });
-        call.on("close", () => {
-          if (videoRef.current) videoRef.current.srcObject = null;
-          setPhase((p) => (p.s === "live" ? { s: "ready" } : p));
-        });
-      });
-    } catch (e) {
-      setSignal("err");
-      setPhase({ s: "error", msg: String((e as Error).message ?? e) });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    void spin();
-    // iOS/Android suspenden pestañas en 2º plano: el socket de señalización
-    // se cae en silencio. Al volver a primer plano, reconectar si hace falta.
-    const onVisible = () => {
-      if (document.visibilityState === "visible" && offlineRef.current && peerRef.current) {
-        try { peerRef.current.reconnect(); } catch { /* ignore */ }
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      try { callRef.current?.close(); } catch { /* ignore */ }
-      try { connRef.current?.close(); } catch { /* ignore */ }
-      try { peerRef.current?.destroy(); } catch { /* ignore */ }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const spinTokenRef = useRef(0); // invalida spins obsoletos (carreras)
+  const respinsRef = useRef(0); // re-spins consecutivos sin éxito
+  const idRetryRef = useRef(0); // colisiones unavailable-id consecutivas
 
   /* ---------- mensajes del emisor ---------- */
 
@@ -222,6 +117,151 @@ export default function ScreenMirrorApp(_props: AppProps) {
     }
   };
 
+  /* ---------- crear / recrear el punto de conexión ----------
+     spin()          → código NUEVO (botón «Nueva conexión», primer arranque)
+     spin(código)    → MISMO código: auto-reparación sin invalidar el QR      */
+
+  const spin = useCallback(async (reuse?: string) => {
+    // limpiar lo anterior
+    try { peerRef.current?.destroy(); } catch { /* ignore */ }
+    peerRef.current = null;
+    connRef.current = null;
+    callRef.current = null;
+    fileRef.current = null;
+    busyRef.current = false;
+    offlineRef.current = false;
+    if (reuse) respinsRef.current += 1; // cuenta auto-reparaciones consecutivas
+    setFileProgress(null);
+    setSignal("ok");
+
+    const c = reuse ?? genMirrorCode();
+    const myToken = ++spinTokenRef.current;
+    codeRef.current = c;
+
+    if (reuse) {
+      // auto-reparación: el código/QR/enlace que ya ves SIGUEN valiendo
+      setPhase((p) => (p.s === "boot" || p.s === "error" ? { s: "ready" } : p));
+    } else {
+      respinsRef.current = 0;
+      setPhase({ s: "boot" });
+      setCode(c);
+      const url = mirrorSenderUrl(c);
+      setSenderUrl(url);
+      setCopied(false);
+      // QR en paralelo a la creación del peer (no bloquea la señal)
+      import("qrcode")
+        .then((m) => m.default.toDataURL(url, { margin: 1, width: 300, color: { dark: "#0b1220ff", light: "#ffffffff" } }))
+        .then((dataUrl: string) => setQr(dataUrl))
+        .catch(() => setQr(""));
+    }
+
+    try {
+      const Peer = await loadPeerClass();
+      if (myToken !== spinTokenRef.current) return; // llegó otra spin: ceder
+      const peer = new Peer(mirrorPeerId(c), peerCommonOpts());
+      peerRef.current = peer;
+
+      peer.on("open", () => {
+        if (myToken !== spinTokenRef.current) return;
+        offlineRef.current = false;
+        respinsRef.current = 0; // recuperación exitosa
+        idRetryRef.current = 0;
+        setSignal("ok");
+        setPhase((p) => (p.s === "boot" ? { s: "ready" } : p));
+      });
+
+      peer.on("disconnected", () => {
+        if (myToken !== spinTokenRef.current) return;
+        offlineRef.current = true;
+        setSignal("off");
+        // NO destruir si hay un emisor en vivo: el canal P2P sobrevive a la
+        // caída de la señalización. Solo se re-para cuando estamos esperando.
+        if (!busyRef.current) {
+          window.setTimeout(() => {
+            if (myToken === spinTokenRef.current && offlineRef.current && !busyRef.current) {
+              void spin(codeRef.current);
+            }
+          }, 2000);
+        }
+      });
+
+      peer.on("error", (err: Error & { type?: string }) => {
+        if (myToken !== spinTokenRef.current) return;
+        const type = err.type ?? "";
+        if (type === "peer-unavailable") return; // respuestas a conn fallidas
+        if (type === "unavailable-id") {
+          // colisión: casi siempre nuestro propio ID recién liberado.
+          // Reintentar el MISMO código (el QR sigue válido); si reincide, nuevo.
+          const attempts = ++idRetryRef.current;
+          window.setTimeout(
+            () => void spin(attempts <= 1 ? codeRef.current : undefined),
+            1500
+          );
+          return;
+        }
+        if (isSignalingError(type)) {
+          setSignal("err");
+          // señal caída: re-crear con el MISMO código hasta el tope, para no
+          // invalidar el QR por una caída pasajera de la red.
+          if (respinsRef.current < MAX_SIGNAL_RESPINS) {
+            window.setTimeout(() => {
+              if (!busyRef.current) void spin(codeRef.current);
+            }, 2500);
+          } else {
+            setPhase({ s: "error", msg: "La conexión de emparejamiento es inestable en esta red. Comprueba la conexión del aula y reintenta con una conexión nueva." });
+          }
+          return;
+        }
+        setSignal("err");
+        setPhase({ s: "error", msg: friendlyPeerError(type, err.message) });
+      });
+
+      /* ----- canal de datos: control + ficheros ----- */
+      peer.on("connection", (conn) => {
+        if (myToken !== spinTokenRef.current) { try { conn.close(); } catch { /* ignore */ } return; }
+        if (busyRef.current) {
+          // ya hay un emisor: esta conexión extra se descarta con aviso
+          try { conn.on("open", () => conn.send({ t: "ack", busy: true } satisfies Record<string, unknown>)); } catch { /* ignore */ }
+          setTimeout(() => { try { conn.close(); } catch { /* ignore */ } }, 800);
+          return;
+        }
+        busyRef.current = true;
+        connRef.current = conn;
+        conn.on("open", () => setPhase({ s: "connecting" }));
+        conn.on("data", (raw) => onData(raw as MirrorControl));
+        conn.on("close", () => onSenderGone("El iPhone se desconectó"));
+        conn.on("error", () => onSenderGone("Se perdió la conexión con el iPhone"));
+      });
+
+      /* ----- llamada multimedia: cámara / pantalla en vivo ----- */
+      peer.on("call", (call) => {
+        if (myToken !== spinTokenRef.current) return;
+        if (!busyRef.current) return; // solo de nuestro emisor
+        callRef.current = call;
+        call.answer(); // sin stream local: solo recibimos
+        call.on("stream", (remote) => {
+          setMuted(true);
+          setPhase((p) => (p.s === "live" ? p : { s: "live", label: p.s === "connecting" ? "iPhone" : "live" }));
+          requestAnimationFrame(() => {
+            const v = videoRef.current;
+            if (v) {
+              v.srcObject = remote as MediaStream;
+              v.play().catch(() => { /* autoplay silenciado siempre permitido */ });
+            }
+          });
+        });
+        call.on("close", () => {
+          if (videoRef.current) videoRef.current.srcObject = null;
+          setPhase((p) => (p.s === "live" ? { s: "ready" } : p));
+        });
+      });
+    } catch (e) {
+      setSignal("err");
+      setPhase({ s: "error", msg: String((e as Error).message ?? e) });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const onSenderGone = (why: string) => {
     if (connRef.current === null) return;
     connRef.current = null;
@@ -233,6 +273,36 @@ export default function ScreenMirrorApp(_props: AppProps) {
     setPhase({ s: "ready" });
     notify("mirror", "Duplicar pantalla", why);
   };
+
+  useEffect(() => {
+    void spin();
+    // iOS/Android suspenden pestañas en 2º plano: el socket de señalización
+    // se cae en silencio y los temporizadores congelados saltan desordenados.
+    // Al volver a primer plano se repara el punto con el MISMO código (el
+    // QR/enlace que ya tienes sigue valiendo) — no se confía en peerjs.reconnect,
+    // que no siempre re-registra el ID tras una suspensión larga.
+    const repair = () => {
+      if (document.visibilityState !== "visible") return;
+      if (busyRef.current) return; // con emisor en vivo, el canal P2P sigue
+      if (offlineRef.current || !peerRef.current) void spin(codeRef.current);
+    };
+    document.addEventListener("visibilitychange", repair);
+    // red de vigilancia: repara si tras una suspensión/fallo no hay peer vivo
+    // (respinsRef acota las auto-reparaciones consecutivas: sin bucles)
+    const iv = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (busyRef.current) return;
+      if (spinTokenRef.current > 0 && respinsRef.current < MAX_SIGNAL_RESPINS) repair();
+    }, 12000);
+    return () => {
+      document.removeEventListener("visibilitychange", repair);
+      window.clearInterval(iv);
+      try { callRef.current?.close(); } catch { /* ignore */ }
+      try { connRef.current?.close(); } catch { /* ignore */ }
+      try { peerRef.current?.destroy(); } catch { /* ignore */ }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ---------- acciones de UI ---------- */
 
@@ -306,6 +376,11 @@ export default function ScreenMirrorApp(_props: AppProps) {
               )}
               <p className="mt-4 text-center text-[10.5px] font-medium uppercase tracking-wider text-neutral-500">código de emparejamiento</p>
               <p className="mt-1 text-center font-mono text-[30px] font-bold leading-none tracking-[0.18em] text-white">{code || "······"}</p>
+              {signal !== "ok" && (
+                <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-center text-[10px] leading-relaxed text-amber-200/90">
+                  {signal === "off" ? "Reconectando el punto… mantén esta pantalla visible mientras tanto." : "Señalización caída: reintentando con el mismo código…"}
+                </p>
+              )}
               <button
                 onClick={() => void copyLink()}
                 className={`mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
@@ -340,6 +415,14 @@ export default function ScreenMirrorApp(_props: AppProps) {
                   </li>
                 </ol>
               )}
+              <a
+                href={senderUrl}
+                target="_blank"
+                rel="noopener"
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium text-sky-300/90 underline-offset-4 hover:underline"
+              >
+                Probar el emisor en este mismo equipo ↗
+              </a>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3.5 text-[10.5px] leading-relaxed text-neutral-400">
                 <p className="mb-1 font-semibold text-neutral-300">Cómo grabar la pantalla del iPhone</p>
                 Centro de control → botón <b>Grabación</b> (⏺) → mantén pulsado y activa el micrófono si quieres. Detén la grabación, ábrela en Fotos y envíala desde la página del enlace.

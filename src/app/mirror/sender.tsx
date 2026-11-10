@@ -10,6 +10,13 @@
      · Enviar una grabación de pantalla hecha en el iPhone
    Página independiente del escritorio: se ve bien en el móvil
    desde el primer píxel. Se sirve en /eosaxroom/mirror/ (Pages).
+
+   Con ?c= la página AUTO-CONNECTA y reintenta sola hasta 5 veces,
+   diagnosticando la causa real de cada fallo:
+     · gone    → la pantalla del aula no está registrada ahora
+     · signal  → la red bloquea 0.peerjs.com (WebSockets)
+     · channel → la señalización pasa pero el canal directo (ICE) no
+   (antes todo caía en un único «no se encontró el código»).
    ============================================================ */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -19,10 +26,14 @@ import {
   MAX_FILE_BYTES,
   canShareScreen,
   fmtBytes,
+  isSignalingError,
   isValidMirrorCode,
   loadPeerClass,
+  mirrorFailMessage,
   mirrorPeerId,
+  peerCommonOpts,
   type MirrorControl,
+  type MirrorFail,
   type PeerDataConn,
   type PeerInstance,
 } from "@/os/services/mirror";
@@ -30,12 +41,23 @@ import {
 type Mode = "idle" | "live" | "sending";
 type Conn = "setup" | "connecting" | "ready" | "error";
 
+/* Un solo intento se daba por vencido demasiado pronto: la pantalla
+ * del aula puede tardar en re-registrarse (pestaña en 2º plano en el
+ * mismo iPhone, red inestable, ID recién liberado). */
+const MAX_TRIES = 5; // intentos totales por «Conectar»
+const RETRY_WAIT_MS = 3500; // entre intentos
+const SIGNAL_TIMEOUT = 9000; // abrir el propio peer (señalización)
+const CHANNEL_TIMEOUT = 16000; // abrir el canal de datos tras conectar
+
+const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+
 export default function MirrorSender() {
   /* código: del QR (?c=…) o tecleado */
   const [input, setInput] = useState("");
   const [code, setCode] = useState("");
   const [conn, setConn] = useState<Conn>("setup");
   const [err, setErr] = useState("");
+  const [tryNo, setTryNo] = useState(1);
   const [mode, setMode] = useState<Mode>("idle");
   const [sendProgress, setSendProgress] = useState<{ sent: number; total: number } | null>(null);
 
@@ -44,20 +66,12 @@ export default function MirrorSender() {
   const callRef = useRef<{ close(): void } | null>(null);
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-
-  /* código inicial de la URL */
-  useEffect(() => {
-    const c = new URLSearchParams(location.search).get("c") ?? "";
-    if (isValidMirrorCode(c)) {
-      setInput(c);
-      setCode(c);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const abortRef = useRef(false); // cancela el bucle de reintentos
 
   /* ---------- conexión con la pantalla del OS ---------- */
 
   const cleanup = useCallback(() => {
+    abortRef.current = true; // detiene el bucle si sigue vivo
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     try { callRef.current?.close(); } catch { /* ignore */ }
@@ -70,72 +84,129 @@ export default function MirrorSender() {
     setSendProgress(null);
   }, []);
 
+  /** Un intento completo: crea peer anónimo, conecta al código y
+   *  resuelve con la CAUSA del fallo (no un genérico). */
+  const oneShot = useCallback(
+    (c: string) =>
+      new Promise<MirrorFail | "open">((resolve) => {
+        let done = false;
+        let signalTimer = 0;
+        let channelTimer = 0;
+        const finish = (o: MirrorFail | "open") => {
+          if (done) return;
+          done = true;
+          window.clearTimeout(signalTimer);
+          window.clearTimeout(channelTimer);
+          if (o !== "open") {
+            // intento fallido: este peer se desecha (el próximo crea otro)
+            const p = peerRef.current;
+            peerRef.current = null;
+            connRef.current = null;
+            try { p?.destroy(); } catch { /* ignore */ }
+          }
+          resolve(o);
+        };
+
+        loadPeerClass()
+          .then((Peer) => {
+            if (abortRef.current || done) { finish("gone"); return; }
+            const peer = new Peer({ ...peerCommonOpts() } as Record<string, unknown>); // ID anónimo de la nube
+            peerRef.current = peer;
+
+            // el peer propio no abre: señalización inalcanzable
+            signalTimer = window.setTimeout(() => finish("signal"), SIGNAL_TIMEOUT);
+
+            // IMPORTANTE: conectar solo cuando el peer esté ABIERTO. Si se llama a
+            // connect() antes, la oferta de señalización se pierde y el canal de
+            // datos nunca abre (verificado en E2E contra la nube pública).
+            peer.on("open", () => {
+              window.clearTimeout(signalTimer);
+              const data = peer.connect(mirrorPeerId(c), { reliable: true });
+              connRef.current = data;
+
+              // señalización OK pero el canal no abre: cortafuegos/NAT (ICE)
+              channelTimer = window.setTimeout(() => finish("channel"), CHANNEL_TIMEOUT);
+
+              data.on("open", () => finish("open"));
+              data.on("close", () => finish("gone")); // el receptor cerró o estaba ocupado
+              data.on("error", () => finish("channel"));
+            });
+            peer.on("disconnected", () => { if (!done) finish("signal"); });
+            peer.on("error", (e: Error & { type?: string }) => {
+              const type = e?.type ?? "";
+              if (type === "peer-unavailable") finish("gone");
+              else if (isSignalingError(type)) finish("signal");
+              else finish("channel"); // webrtc u otros
+            });
+          })
+          .catch(() => finish("signal"));
+      }),
+    []
+  );
+
   const connect = useCallback(
     async (c: string) => {
       if (!isValidMirrorCode(c)) {
         setErr("El código tiene 6 letras/números (sin 0/O ni 1/I).");
+        setConn("setup");
         return;
       }
       setErr("");
       setConn("connecting");
       setCode(c);
+      abortRef.current = false;
 
       // descartar un intento anterior (peer muerto): sus handlers no deben
-      // colarse en este intento. Así "Reintentar" siempre empieza limpio.
+      // colarse en este intento. Así «Reintentar» siempre empieza limpio.
       try { peerRef.current?.destroy(); } catch { /* ignore */ }
       peerRef.current = null;
       connRef.current = null;
       callRef.current = null;
 
-      try {
-        const Peer = await loadPeerClass();
-        const peer = new Peer({ debug: 0 } as Record<string, unknown>); // ID anónimo asignado por la nube
-        peerRef.current = peer;
-
-        const failTimer = window.setTimeout(() => {
-          setConn("error");
-          setErr("No se encontró la pantalla con ese código. ¿Sigue abierta la app «Duplicar pantalla»?");
-          try { peer.destroy(); } catch { /* ignore */ }
-        }, 18000);
-
-        peer.on("error", (e: Error & { type?: string }) => {
-          if (e.type === "peer-unavailable") {
-            window.clearTimeout(failTimer);
-            setConn("error");
-            setErr("No se encontró la pantalla con ese código. Compruébalo e reintenta.");
-            try { peer.destroy(); } catch { /* ignore */ }
-          }
-        });
-
-        // IMPORTANTE: conectar solo cuando el peer esté ABIERTO. Si se llama a
-        // connect() antes, la oferta de señalización se pierde y el canal de
-        // datos nunca abre (verificado en E2E contra la nube pública).
-        peer.on("open", () => {
-          const data = peer.connect(mirrorPeerId(c), { reliable: true });
-          connRef.current = data;
-
-          data.on("open", () => {
-            window.clearTimeout(failTimer);
-            setConn("ready");
-            data.send({ t: "hello", ua: navigator.userAgent } satisfies MirrorControl);
-          });
-          data.on("close", () => {
+      // Bucle de reintentos: la pantalla del aula puede re-registrarse
+      // (pestaña en 2º plano del mismo iPhone, red que tarda en liberar
+      // el ID caído, servicio inestable un momento…).
+      for (let i = 1; i <= MAX_TRIES; i++) {
+        if (abortRef.current) return;
+        setTryNo(i);
+        const out = await oneShot(c);
+        if (abortRef.current) return;
+        if (out === "open") {
+          setConn("ready");
+          const d = connRef.current;
+          d?.send({ t: "hello", ua: navigator.userAgent } satisfies MirrorControl);
+          d?.on("close", () => {
             setConn("error");
             setErr("La pantalla receptora cerró la conexión.");
             cleanup();
           });
-          data.on("error", () => {
-            setConn("error");
-            setErr("Error del canal de datos con la pantalla.");
-          });
-        });
-      } catch (e) {
-        setConn("error");
-        setErr(String((e as Error).message ?? e));
+          return;
+        }
+        if (i === MAX_TRIES) {
+          setConn("error");
+          setErr(mirrorFailMessage(out));
+          return;
+        }
+        // espera antes del siguiente intento
+        await sleep(RETRY_WAIT_MS);
       }
     },
-    [cleanup]
+    [cleanup, oneShot]
   );
+
+  /* código inicial de la URL: AUTO-CONNECTAR (viene del QR — el usuario
+   * ya decidió emparejar; ahorrarle el botón arranca antes los
+   * reintentos, clave cuando el aula corre en el mismo iPhone). */
+  useEffect(() => {
+    const c = new URLSearchParams(location.search).get("c") ?? "";
+    if (isValidMirrorCode(c)) {
+      setInput(c);
+      setCode(c);
+      const t = window.setTimeout(() => void connect(c), 900);
+      return () => window.clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => () => cleanup(), [cleanup]);
 
@@ -273,7 +344,7 @@ export default function MirrorSender() {
               <>
                 <p className="mt-3 text-[11.5px] leading-relaxed text-red-300">{err}</p>
                 <p className="mt-2 text-[10.5px] leading-relaxed text-neutral-500">
-                  Comprueba que en la pantalla del aula siga visible el mismo código. Si vuelve a pasar, cierra esta pestaña y vuelve a escanear el QR: a veces el móvil guarda la versión anterior de la página.
+                  Si acaba de pasar en clase con dos equipos distintos, cierra esta pestaña y vuelve a escanear el QR: a veces el móvil guarda la versión anterior de la página.
                 </p>
               </>
             )}
@@ -282,12 +353,28 @@ export default function MirrorSender() {
             </p>
           </section>
         ) : conn === "connecting" ? (
-          /* -------- conectando -------- */
+          /* -------- conectando (con reintentos) -------- */
           <section className="flex flex-col items-center gap-3 rounded-3xl border border-white/10 bg-white/[0.04] p-8">
             <div className="h-9 w-9 animate-spin rounded-full border-2 border-white/15 border-t-sky-400" />
-            <p className="text-[12.5px] text-neutral-300">
-              Emparejando con la pantalla <span className="font-mono font-bold">{code}</span>…
+            <p className="text-center text-[12.5px] text-neutral-300">
+              Buscando la pantalla <span className="font-mono font-bold">{code}</span>…
+              <span className="block text-[11px] text-neutral-500">intento {tryNo} de {MAX_TRIES}</span>
             </p>
+            {tryNo >= 2 && (
+              <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-center text-[10.5px] leading-relaxed text-amber-200/85">
+                Si abriste el aula en <b>este mismo iPhone</b>: cambia un momento a esa pestaña para reactivarla y vuelve aquí. Con dos equipos (aula + móvil) basta esperar.
+              </p>
+            )}
+            <button
+              onClick={() => {
+                cleanup();
+                setConn("setup");
+                setErr("");
+              }}
+              className="mt-1 rounded-full border border-white/10 px-4 py-1.5 text-[11px] font-medium text-neutral-400 transition active:bg-white/5"
+            >
+              Cancelar
+            </button>
           </section>
         ) : (
           /* -------- conectado: modos -------- */
