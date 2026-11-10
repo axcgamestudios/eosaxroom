@@ -67,6 +67,7 @@ export default function ScreenMirrorApp(_props: AppProps) {
   const fileRef = useRef<{ name: string; size: number; mime: string; chunks: ArrayBuffer[]; got: number } | null>(null);
   const codeRef = useRef("");
   const busyRef = useRef(false); // ya hay un emisor aceptado
+  const lastDataRef = useRef(0); // latido: último dato del emisor
   const spinTokenRef = useRef(0); // invalida spins obsoletos (carreras)
   const respinsRef = useRef(0); // re-spins consecutivos sin éxito
   const idRetryRef = useRef(0); // colisiones unavailable-id consecutivas
@@ -74,6 +75,7 @@ export default function ScreenMirrorApp(_props: AppProps) {
   /* ---------- mensajes del emisor ---------- */
 
   const onData = (raw: unknown) => {
+    lastDataRef.current = Date.now(); // cualquier dato = señal de vida del emisor
     if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
       const f = fileRef.current;
       if (!f) return; // trozo sin cabecera: ignorar
@@ -87,6 +89,10 @@ export default function ScreenMirrorApp(_props: AppProps) {
     switch (msg.t) {
       case "hello":
         notify("mirror", "iPhone conectado", "Elige en el móvil qué enviar: cámara, pantalla o una grabación.");
+        break;
+      case "ping":
+        // latido del emisor: contestar en el acto para que sepa que vivimos
+        try { connRef.current?.send({ t: "pong" } satisfies Record<string, unknown>); } catch { /* canal caído */ }
         break;
       case "live-start":
         setFileProgress(null);
@@ -226,8 +232,9 @@ export default function ScreenMirrorApp(_props: AppProps) {
           return;
         }
         busyRef.current = true;
+        lastDataRef.current = Date.now();
         connRef.current = conn;
-        conn.on("open", () => setPhase({ s: "connecting" }));
+        conn.on("open", () => { lastDataRef.current = Date.now(); setPhase({ s: "connecting" }); });
         conn.on("data", (raw) => onData(raw as MirrorControl));
         conn.on("close", () => onSenderGone("El iPhone se desconectó"));
         conn.on("error", () => onSenderGone("Se perdió la conexión con el iPhone"));
@@ -291,6 +298,12 @@ export default function ScreenMirrorApp(_props: AppProps) {
     // (respinsRef acota las auto-reparaciones consecutivas: sin bucles)
     const iv = window.setInterval(() => {
       if (document.visibilityState !== "visible") return;
+      // emisor ZOMBI: iOS mata su pestaña en 2º plano sin disparar "close";
+      // sin datos suyos en 45 s se libera el punto para re-emparejar (el
+      // emisor nuevo se auto-reconecta con el mismo código y funciona).
+      if (busyRef.current && Date.now() - lastDataRef.current > 45000) {
+        onSenderGone("El iPhone dejó de responder (pestaña cerrada o en 2º plano largo): ya puedes emparejar de nuevo");
+      }
       if (busyRef.current) return;
       if (spinTokenRef.current > 0 && respinsRef.current < MAX_SIGNAL_RESPINS) repair();
     }, 12000);
@@ -317,8 +330,15 @@ export default function ScreenMirrorApp(_props: AppProps) {
   };
 
   const goFullscreen = () => {
-    const el = videoRef.current?.parentElement;
-    if (el?.requestFullscreen) void el.requestFullscreen();
+    // iPhone Safari no soporta requestFullscreen en <div>: usar las variantes
+    // webkit (y, en última instancia, el fullscreen NATIVO del elemento <video>)
+    const v = videoRef.current;
+    const wrap = v?.parentElement as (HTMLElement & { webkitRequestFullscreen?: () => unknown }) | null | undefined;
+    try {
+      if (wrap?.requestFullscreen) { void wrap.requestFullscreen(); return; }
+      if (wrap?.webkitRequestFullscreen) { wrap.webkitRequestFullscreen(); return; }
+      (v as (HTMLVideoElement & { webkitEnterFullscreen?: () => void }) | null)?.webkitEnterFullscreen?.();
+    } catch { /* navegador sin fullscreen */ }
   };
 
   /* ================= render ================= */

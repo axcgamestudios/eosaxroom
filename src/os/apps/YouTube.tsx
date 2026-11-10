@@ -142,6 +142,31 @@ function Player({ w, onEnd }: { w: YtWatch; onEnd?: () => void }) {
   const quality = qOverride && w.streams.some((s) => s.quality === qOverride) ? qOverride : (w.streams[0]?.quality ?? "");
   const src = useMemo(() => w.streams.find((s) => s.quality === quality)?.url ?? w.streams[0]?.url ?? "", [quality, w.streams]);
   const ref = useRef<HTMLVideoElement | null>(null);
+  const seekRef = useRef(0); // minuto exacto al cambiar de calidad
+
+  /* Al cambiar calidad el <video> se remonta (key): en iPhone el autoPlay
+     sin gesto no arranca y además se perdía la posición — el botón parecía
+     «no hacer nada». Se reanuda con play() + seek dentro de la ventana de
+     activación del propio toque. */
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    v.play().catch(() => { /* sin activación aún: quedará el ▶ nativo */ });
+    const seek = seekRef.current;
+    if (seek > 2) {
+      const apply = () => {
+        try { v.currentTime = seek; } catch { /* medio aún no cargable */ }
+      };
+      if (v.readyState >= 1) apply();
+      else v.addEventListener("loadedmetadata", apply, { once: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src]);
+
+  const pickQuality = (q: string) => {
+    seekRef.current = ref.current?.currentTime ?? 0;
+    setQOverride(q);
+  };
 
   if (w.live && w.hls) {
     return (
@@ -189,7 +214,7 @@ function Player({ w, onEnd }: { w: YtWatch; onEnd?: () => void }) {
           {w.streams.map((s) => (
             <button
               key={s.quality}
-              onClick={() => setQOverride(s.quality)}
+              onClick={() => pickQuality(s.quality)}
               className={`rounded-full px-2 py-0.5 text-[10.5px] font-semibold transition ${
                 s.quality === quality ? "bg-red-600 text-white" : "bg-white/10 text-neutral-300 hover:bg-white/20"
               }`}
