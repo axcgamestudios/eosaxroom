@@ -535,6 +535,30 @@ export const YouTubeIcon: IconType = ({ className }) => (
   </svg>
 );
 
+/* Duplicar pantalla: monitor con ondas de emisión, azul estilo macOS */
+export const ScreenMirrorIcon: IconType = ({ className }) => (
+  <svg viewBox="0 0 64 64" className={className} aria-hidden>
+    <defs>
+      <linearGradient id="smG" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stopColor="#38bdf8" />
+        <stop offset="1" stopColor="#1e40af" />
+      </linearGradient>
+    </defs>
+    <rect x="4" y="4" width="56" height="56" rx="14" fill="url(#smG)" />
+    {/* pantalla receptora */}
+    <rect x="14" y="20" width="36" height="24" rx="4" fill="#fff" opacity="0.96" />
+    <rect x="18" y="24" width="28" height="16" rx="2.5" fill="#0b1220" />
+    {/* base del monitor */}
+    <path d="M26 44h12l2 6H24z" fill="#fff" opacity="0.96" />
+    {/* ondas que emanan del móvil hacia arriba */}
+    <path d="M30 16.5c2.8 0 5-2.2 5-5" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" />
+    <path d="M22.5 15c0-4.6 3.7-8.4 8.4-8.4" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" opacity="0.75" />
+    <path d="M40.5 15c0-4.6-3.7-8.4-8.4-8.4" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" opacity="0.75" />
+    {/* proyección dentro de la pantalla (mini móvil) */}
+    <rect x="29" y="27" width="6" height="10" rx="1.5" fill="#38bdf8" />
+  </svg>
+);
+
 /* Mail: sobre azul degradado estilo macOS */
 export const MailIcon: IconType = ({ className }) => (
   <svg viewBox="0 0 64 64" className={className} aria-hidden>

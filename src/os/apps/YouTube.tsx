@@ -11,7 +11,6 @@ import {
   ytHistoryClear,
   ytHistoryPush,
   ytHomeCached,
-  ytMetaFallback,
   ytSearchCached,
   ytChannelCached,
   ytWatch,
@@ -286,7 +285,6 @@ function Comments({ videoId }: { videoId: string }) {
 function Watch({ id, onOpen, onOpenChannel, onTitle }: { id: string; onOpen: (v: YtVideo) => void; onOpenChannel: (id: string) => void; onTitle?: (t: string) => void }) {
   const [w, setW] = useState<YtWatch | null>(null);
   const [err, setErr] = useState("");
-  const [metaFb, setMetaFb] = useState<{ title: string; author: string } | null>(null);
   const [descOpen, setDescOpen] = useState(false);
   const [related, setRelated] = useState<YtVideo[]>([]);
   const [retry, setRetry] = useState(0);
@@ -294,15 +292,17 @@ function Watch({ id, onOpen, onOpenChannel, onTitle }: { id: string; onOpen: (v:
   useEffect(() => {
     let alive = true;
     void (async () => {
-      setW(null); setErr(""); setMetaFb(null); setRelated([]); setDescOpen(false);
+      setW(null); setErr(""); setRelated([]); setDescOpen(false);
       try {
+        // ytWatch ya integra el fallback al reproductor embebido oficial
+        // cuando las fuentes libres están bloqueadas (carrera paralela corta).
         const data = await ytWatch(id);
         if (!alive) return;
         setW(data);
         if (onTitle) onTitle(`${data.title.slice(0, 48)} — YouTube`);
         ytHistoryPush({ id, title: data.title, author: data.author, thumb: data.thumb, duration: data.duration });
         if (data.related.length === 0) {
-          // /streams bloqueado parcial → relacionados vía búsqueda del título
+          // sin relacionados (embed u otra instancia) → búsqueda del título
           try {
             const r = await ytSearchCached(data.title.slice(0, 60));
             if (alive) setRelated(r.filter((x) => x.id !== id).slice(0, 12));
@@ -310,24 +310,7 @@ function Watch({ id, onOpen, onOpenChannel, onTitle }: { id: string; onOpen: (v:
         }
       } catch (e) {
         if (!alive) return;
-        // /streams bloqueado por completo → metadatos por oEmbed + relacionados por búsqueda + embed para reproducir
-        try {
-          const fb = await ytMetaFallback(id);
-          if (!alive) return;
-          setMetaFb(fb);
-          if (onTitle) onTitle(`${fb.title.slice(0, 48)} — YouTube`);
-          setW({
-            id, title: fb.title, author: fb.author || "YouTube", authorId: "", authorAvatar: "",
-            description: "", duration: 0, views: 0, uploaded: "", thumb: fb.thumb, live: false,
-            streams: [], related: [], embedFallback: true,
-            embedReason: "fuentes libres bloqueadas temporalmente",
-          });
-          const r = await ytSearchCached(fb.title.slice(0, 60)).catch(() => []);
-          if (alive) setRelated(r.filter((x) => x.id !== id).slice(0, 12));
-          ytHistoryPush({ id, title: fb.title, author: fb.author, thumb: fb.thumb, duration: 0 });
-        } catch {
-          setErr(String((e as Error).message ?? e));
-        }
+        setErr(String((e as Error).message ?? e));
       }
     })();
     return () => { alive = false; };
@@ -365,7 +348,7 @@ function Watch({ id, onOpen, onOpenChannel, onTitle }: { id: string; onOpen: (v:
             {typeof w.likes === "number" && w.likes > 0 && (
               <span className="flex items-center gap-1"><ThumbsUp size={11} /> {w.likes.toLocaleString("es")}</span>
             )}
-            {metaFb && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">metadatos parciales</span>}
+            {w.embedFallback && <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">reproductor oficial</span>}
           </div>
 
           {w.author && (
