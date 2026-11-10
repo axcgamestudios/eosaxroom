@@ -81,3 +81,73 @@ export function fmtBytes(n: number): string {
 export function canShareScreen(): boolean {
   return typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 }
+
+/* ============================================================
+   Carga de PeerJS
+   ------------------------------------------------------------
+   Se usa el build UMD propio (public/vendor/peerjs.min.js) con
+   <script> clásico en vez del import() del paquete npm: el
+   empaquetado de Next/Turbopack rompía el WebSocket de
+   señalización del EMISOR (probado en E2E), mientras que el UMD
+   funciona idéntico en ambos extremos. Se cachea la promesa.
+   ============================================================ */
+
+/** URL de un asset de public/ sirviendo bien bajo basePath:
+ *  /eosaxroom/mirror/ → /eosaxroom/… · /eosaxroom/ → /eosaxroom/… · / → /… */
+export function vendorAssetUrl(file: string): string {
+  let base = location.pathname;
+  base = base.replace(/mirror\/?$/, "");
+  if (!base.endsWith("/")) base += "/";
+  return base + file;
+}
+
+export interface PeerDataConn {
+  open: boolean;
+  send(data: unknown): void;
+  on(ev: string, cb: (e: unknown) => void): void;
+  close(): void;
+  readonly dataChannel?: RTCDataChannel;
+}
+
+export interface PeerMediaConn {
+  on(ev: string, cb: (e: unknown) => void): void;
+  close(): void;
+}
+
+export interface PeerInstance {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  on(ev: string, cb: (e: any) => void): void;
+  connect(id: string, opts?: Record<string, unknown>): PeerDataConn;
+  call(id: string, stream: MediaStream, opts?: Record<string, unknown>): PeerMediaConn;
+  destroy(): void;
+  reconnect(): void;
+}
+
+export type PeerConstructor = new (
+  idOrOpts?: string | Record<string, unknown>,
+  opts?: Record<string, unknown>
+) => PeerInstance;
+
+let peerLib: Promise<PeerConstructor> | null = null;
+
+/** Carga (una sola vez) PeerJS UMD como window.Peer. */
+export function loadPeerClass(): Promise<PeerConstructor> {
+  if (peerLib) return peerLib;
+  peerLib = new Promise<PeerConstructor>((resolve, reject) => {
+    const w = window as unknown as { Peer?: PeerConstructor };
+    if (w.Peer) {
+      resolve(w.Peer);
+      return;
+    }
+    const s = document.createElement("script");
+    s.src = vendorAssetUrl("vendor/peerjs.min.js");
+    s.async = true;
+    s.onload = () => {
+      if (w.Peer) resolve(w.Peer);
+      else reject(new Error("PeerJS cargado pero no se registró como global"));
+    };
+    s.onerror = () => reject(new Error("No se pudo cargar PeerJS (vendor/peerjs.min.js)"));
+    document.head.appendChild(s);
+  });
+  return peerLib;
+}
