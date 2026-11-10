@@ -20,6 +20,7 @@ import {
   YouTubeIcon,
   MailIcon,
   AppStoreIcon,
+  ScreenMirrorIcon,
 } from "./icons";
 import AxcGamesApp from "./apps/AxcGames";
 import SafariApp from "./apps/Safari";
@@ -35,6 +36,7 @@ import DownloadsApp from "./apps/Downloads";
 import YouTubeApp from "./apps/YouTube";
 import MailApp from "./apps/Mail";
 import AppStoreApp from "./apps/AppStore";
+import ScreenMirrorApp from "./apps/ScreenMirror";
 import WebAppFrame from "./apps/WebAppFrame";
 import { findWebAppById, listWebApps, tileGradientFor, WEBAPP_PREFIX } from "./services/webapps";
 
@@ -174,6 +176,18 @@ export const APPS: AppDef[] = [
       windowMenu,
       helpMenu,
     ],
+  },
+  {
+    id: "mirror",
+    name: "Duplicar pantalla",
+    icon: ScreenMirrorIcon,
+    component: ScreenMirrorApp,
+    defaultSize: { w: 900, h: 620 },
+    minSize: { w: 460, h: 380 },
+    singleInstance: true,
+    showInDock: true,
+    showInLaunchpad: true,
+    menus: [fileMenu, editMenu, windowMenu, helpMenu],
   },
   {
     id: "notes",

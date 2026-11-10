@@ -91,10 +91,17 @@ const PIPED_INSTANCES = [
 ];
 
 let idx = 0; // índice de la instancia "sana" actual
-let okUntil = 0; // evita sondear en cada llamada cuando todo falla
+let okUntil = 0; // cooldown SOLO de metadatos (search/comments/trending)
 
-function base(): string {
-  return PIPED_INSTANCES[idx % PIPED_INSTANCES.length];
+/* Streams: las instancias libres están bloqueadas por Google la mayor parte
+   del tiempo (LOGIN_REQUIRED). Cooldown largo y separado: mientras esté
+   activo, ytWatch() ni siquiera intenta Piped y abre directamente el
+   reproductor oficial embebido (que se sirve desde la IP del usuario). */
+let streamsBlockedUntil = 0;
+const STREAMS_BLOCK_MS = 10 * 60 * 1000;
+
+export function ytStreamsBlocked(): boolean {
+  return Date.now() < streamsBlockedUntil;
 }
 
 async function piped<T>(path: string, timeoutMs = 12000): Promise<T> {
@@ -129,9 +136,35 @@ async function piped<T>(path: string, timeoutMs = 12000): Promise<T> {
       if (Date.now() - started > timeoutMs * 2.2) break;
     }
   }
-  // todo falló: cooldown corto para no martillear
+  // todo falló: cooldown corto para no martillear (solo metadatos)
   okUntil = Date.now() + 12000;
   throw lastErr instanceof Error ? lastErr : new Error("Sin instancias disponibles");
+}
+
+/** Carrera PARALELA entre todas las instancias (para /streams).
+ *  La primera que responda con datos JSON válidos gana; si todas fallan o
+ *  se agota el presupuesto total, se rechaza. Evita la espera secuencial
+ *  de ~30 s (dos instancias cuelgan con timeout de 12 s cada una). */
+async function pipedRace<T>(path: string, totalBudgetMs = 6500): Promise<T> {
+  const attempts = PIPED_INSTANCES.map((inst) =>
+    (async () => {
+      const res = await fetch(inst + path, { signal: AbortSignal.timeout(totalBudgetMs) });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`${inst.replace("https://", "")}: HTTP ${res.status}`);
+      const data = JSON.parse(text) as { error?: string };
+      if (data && typeof data.error === "string" && Object.keys(data).length <= 3) {
+        throw new Error(data.error.slice(0, 120));
+      }
+      return data as T;
+    })()
+  );
+  try {
+    return await Promise.any(attempts);
+  } catch (agg) {
+    const errs = (agg as AggregateError)?.errors ?? [agg];
+    const msg = errs.find((e) => e instanceof Error)?.message ?? "sin instancias";
+    throw new Error(msg);
+  }
 }
 
 /* ---------------- helpers ---------------- */
@@ -226,9 +259,47 @@ export async function ytSearchAll(q: string): Promise<(YtVideo | { channel: YtCh
 
 /* ---------------- watch ---------------- */
 
+/** Watch con metadatos mínimos por oEmbed + reproductor embebido oficial.
+ *  Se usa cuando las fuentes libres están bloqueadas (lo normal hoy):
+ *  el reproductor se sirve desde la IP DEL USUARIO, no desde la instancia. */
+async function embedWatch(id: string, reason: string): Promise<YtWatch> {
+  const fb = await ytMetaFallback(id);
+  return {
+    id,
+    title: fb.title,
+    author: fb.author || "YouTube",
+    authorId: "",
+    authorAvatar: "",
+    description: "",
+    duration: 0,
+    views: 0,
+    likes: undefined,
+    uploaded: "",
+    thumb: fb.thumb,
+    live: false,
+    streams: [],
+    hls: undefined,
+    related: [],
+    embedFallback: true,
+    embedReason: reason,
+  };
+}
+
 export async function ytWatch(id: string): Promise<YtWatch> {
-  const data = await piped<Record<string, unknown>>(`/streams/${encodeURIComponent(id)}`);
-  if (!data || typeof data.title !== "string") throw new Error("respuesta sin datos");
+  // fuentes libres bloqueadas hace poco → directo al embed oficial (instantáneo)
+  if (ytStreamsBlocked()) {
+    return embedWatch(id, "fuentes libres bloqueadas temporalmente");
+  }
+
+  let data: Record<string, unknown>;
+  try {
+    data = await pipedRace<Record<string, unknown>>(`/streams/${encodeURIComponent(id)}`);
+    if (!data || typeof data.title !== "string") throw new Error("respuesta sin datos");
+  } catch {
+    // instancias bloqueadas/campus caídas: no martillear en cada vídeo 10 minutos
+    streamsBlockedUntil = Date.now() + STREAMS_BLOCK_MS;
+    return embedWatch(id, "fuentes libres bloqueadas temporalmente");
+  }
 
   const rawStreams = (data.videoStreams ?? []) as Record<string, unknown>[];
   const muxed: YtStream[] = rawStreams
@@ -240,6 +311,12 @@ export async function ytWatch(id: string): Promise<YtWatch> {
       muxed: true,
     }))
     .sort((a, b) => parseInt(b.quality) - parseInt(a.quality));
+
+  if (muxed.length === 0) {
+    // la instancia respondió, pero Google le negó los streams → 5 min de descanso
+    streamsBlockedUntil = Date.now() + 5 * 60 * 1000;
+    return embedWatch(id, "instancia sin streams");
+  }
 
   return {
     id,
@@ -258,8 +335,7 @@ export async function ytWatch(id: string): Promise<YtWatch> {
     streams: muxed,
     hls: typeof data.hls === "string" ? data.hls : undefined,
     related: mapItems(data.relatedStreams ?? []),
-    embedFallback: muxed.length === 0,
-    embedReason: muxed.length === 0 ? "Las instancias libres están bloqueadas por Google ahora mismo" : undefined,
+    embedFallback: false,
   };
 }
 
