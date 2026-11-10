@@ -11,17 +11,25 @@
      · Grabaciones de pantalla (fichero por el canal de datos)
      · Pantalla en vivo (desde Mac/PC/Android; Apple no permite
        capturar la pantalla del iPhone desde Safari)
-   peerjs y qrcode se cargan con import() dinámico para no
-   pesar en el arranque del resto del sistema.
+   peerjs se carga como UMD propio (public/vendor) y qrcode con
+   import() dinámico: nada pesa en el arranque del sistema.
    ============================================================ */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, MonitorUp, RefreshCw, Smartphone, Volume2, VolumeX, X } from "lucide-react";
 import type { AppProps } from "../types";
 import { useOS } from "../store";
-import { fmtBytes, genMirrorCode, mirrorPeerId, mirrorSenderUrl, type MirrorControl } from "../services/mirror";
-import type Peer from "peerjs";
-import type { DataConnection, MediaConnection } from "peerjs";
+import {
+  fmtBytes,
+  genMirrorCode,
+  loadPeerClass,
+  mirrorPeerId,
+  mirrorSenderUrl,
+  type MirrorControl,
+  type PeerDataConn,
+  type PeerInstance,
+  type PeerMediaConn,
+} from "../services/mirror";
 
 type Phase =
   | { s: "boot" } // creando el punto de conexión
@@ -42,9 +50,9 @@ export default function ScreenMirrorApp(_props: AppProps) {
   const [fileProgress, setFileProgress] = useState<{ got: number; total: number } | null>(null);
   const [signal, setSignal] = useState<"ok" | "off" | "err">("ok");
 
-  const peerRef = useRef<Peer | null>(null);
-  const connRef = useRef<DataConnection | null>(null);
-  const callRef = useRef<MediaConnection | null>(null);
+  const peerRef = useRef<PeerInstance | null>(null);
+  const connRef = useRef<PeerDataConn | null>(null);
+  const callRef = useRef<PeerMediaConn | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const fileRef = useRef<{ name: string; size: number; mime: string; chunks: ArrayBuffer[]; got: number } | null>(null);
   const codeRef = useRef("");
@@ -78,8 +86,8 @@ export default function ScreenMirrorApp(_props: AppProps) {
       .catch(() => setQr(""));
 
     try {
-      const { default: Peer } = await import("peerjs");
-      const peer = new Peer(mirrorPeerId(c), { debug: 0 });
+      const Peer = await loadPeerClass();
+      const peer = new Peer(mirrorPeerId(c), { debug: 0 } as Record<string, unknown>);
       peerRef.current = peer;
 
       peer.on("open", () => setPhase((p) => (p.s === "boot" ? { s: "ready" } : p)));

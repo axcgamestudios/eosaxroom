@@ -20,11 +20,12 @@ import {
   canShareScreen,
   fmtBytes,
   isValidMirrorCode,
+  loadPeerClass,
   mirrorPeerId,
   type MirrorControl,
+  type PeerDataConn,
+  type PeerInstance,
 } from "@/os/services/mirror";
-import type Peer from "peerjs";
-import type { DataConnection } from "peerjs";
 
 type Mode = "idle" | "live" | "sending";
 type Conn = "setup" | "connecting" | "ready" | "error";
@@ -38,9 +39,9 @@ export default function MirrorSender() {
   const [mode, setMode] = useState<Mode>("idle");
   const [sendProgress, setSendProgress] = useState<{ sent: number; total: number } | null>(null);
 
-  const peerRef = useRef<Peer | null>(null);
-  const connRef = useRef<DataConnection | null>(null);
-  const callRef = useRef<{ close: () => void } | null>(null);
+  const peerRef = useRef<PeerInstance | null>(null);
+  const connRef = useRef<PeerDataConn | null>(null);
+  const callRef = useRef<{ close(): void } | null>(null);
   const previewRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -79,33 +80,15 @@ export default function MirrorSender() {
       setConn("connecting");
       setCode(c);
       try {
-        const { default: Peer } = await import("peerjs");
-        const peer = new Peer({ debug: 0 }); // ID anónimo asignado por la nube
+        const Peer = await loadPeerClass();
+        const peer = new Peer({ debug: 0 } as Record<string, unknown>); // ID anónimo asignado por la nube
         peerRef.current = peer;
-
-        const data = peer.connect(mirrorPeerId(c), { reliable: true });
-        connRef.current = data;
 
         const failTimer = window.setTimeout(() => {
           setConn("error");
           setErr("No se encontró la pantalla con ese código. ¿Sigue abierta la app «Duplicar pantalla»?");
           try { peer.destroy(); } catch { /* ignore */ }
         }, 12000);
-
-        data.on("open", () => {
-          window.clearTimeout(failTimer);
-          setConn("ready");
-          data.send({ t: "hello", ua: navigator.userAgent } satisfies MirrorControl);
-        });
-        data.on("close", () => {
-          setConn("error");
-          setErr("La pantalla receptora cerró la conexión.");
-          cleanup();
-        });
-        data.on("error", () => {
-          setConn("error");
-          setErr("Error del canal de datos con la pantalla.");
-        });
 
         peer.on("error", (e: Error & { type?: string }) => {
           if (e.type === "peer-unavailable") {
@@ -114,6 +97,29 @@ export default function MirrorSender() {
             setErr("No se encontró la pantalla con ese código. Compruébalo e reintenta.");
             try { peer.destroy(); } catch { /* ignore */ }
           }
+        });
+
+        // IMPORTANTE: conectar solo cuando el peer esté ABIERTO. Si se llama a
+        // connect() antes, la oferta de señalización se pierde y el canal de
+        // datos nunca abre (verificado en E2E contra la nube pública).
+        peer.on("open", () => {
+          const data = peer.connect(mirrorPeerId(c), { reliable: true });
+          connRef.current = data;
+
+          data.on("open", () => {
+            window.clearTimeout(failTimer);
+            setConn("ready");
+            data.send({ t: "hello", ua: navigator.userAgent } satisfies MirrorControl);
+          });
+          data.on("close", () => {
+            setConn("error");
+            setErr("La pantalla receptora cerró la conexión.");
+            cleanup();
+          });
+          data.on("error", () => {
+            setConn("error");
+            setErr("Error del canal de datos con la pantalla.");
+          });
         });
       } catch (e) {
         setConn("error");
@@ -199,7 +205,7 @@ export default function MirrorSender() {
     setSendProgress({ sent: 0, total: f.size });
     conn0.send({ t: "file-start", name: f.name, size: f.size, mime: f.type || "video/mp4" } satisfies MirrorControl);
 
-    const dc = (conn0 as unknown as { dataChannel?: RTCDataChannel }).dataChannel;
+    const dc = conn0.dataChannel;
     let sent = 0;
     const CHUNKS = Math.ceil(f.size / CHUNK_SIZE);
     for (let i = 0; i < CHUNKS; i++) {
