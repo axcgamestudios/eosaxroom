@@ -137,6 +137,41 @@ export function canShareScreen(): boolean {
   return typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 }
 
+/** ¿iPhone/iPad? En iOS, Safari solo permite compartir LA PESTAÑA ACTUAL
+ *  (ni otras pestañas ni otras apps: Apple lo reserva a apps nativas con
+ *  ReplayKit, como la app de Zoom). Sirve para ajustar textos y expectativas. */
+export function isIOS(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent;
+  const nv = navigator as Navigator & { maxTouchPoints?: number };
+  // iPadOS moderno se presenta como «Macintosh» con multitáctil
+  return /iPad|iPhone|iPod/.test(ua) || (ua.includes("Macintosh") && (nv.maxTouchPoints ?? 0) > 1);
+}
+
+/* --------- ajuste de calidad del envío (la queja: «se pierde calidad») ---
+   Sin esto el navegador arranca el vídeo con ~1 Mbps de bitrate por defecto
+   y, si la red fluctúa, rebaja la RESOLUCIÓN — el texto queda ilegible en el
+   proyector. Subir maxBitrate y fijar degradationPreference hace que el
+   codificador baje el framerate antes que la nitidez (contenido de pantalla)
+   o equilibre (cámara). Se re-aplica tras la negociación WebRTC porque los
+   senders pueden no existir aún justo tras peer.call(). */
+export function tuneVideoSenders(call: unknown, screen: boolean): void {
+  const pc = (call as { peerConnection?: RTCPeerConnection | null } | null)?.peerConnection;
+  if (!pc || typeof pc.getSenders !== "function") return;
+  for (const s of pc.getSenders()) {
+    if (s.track?.kind !== "video") continue;
+    try {
+      const p = s.getParameters() as RTCRtpSendParameters & {
+        degradationPreference?: "balanced" | "maintain-resolution" | "maintain-framerate";
+      };
+      if (!p.encodings || p.encodings.length === 0) p.encodings = [{}];
+      p.encodings[0].maxBitrate = screen ? 6_500_000 : 4_000_000;
+      p.degradationPreference = screen ? "maintain-resolution" : "balanced";
+      void s.setParameters(p).catch(() => { /* navegador sin soporte: default */ });
+    } catch { /* idem: se queda el bitrate por defecto */ }
+  }
+}
+
 /* ============================================================
    Carga de PeerJS
    ------------------------------------------------------------
@@ -167,6 +202,8 @@ export interface PeerDataConn {
 export interface PeerMediaConn {
   on(ev: string, cb: (e: unknown) => void): void;
   close(): void;
+  /** RTCPeerConnection subyacente (para ajustar bitrate/encodings). */
+  readonly peerConnection?: RTCPeerConnection | null;
 }
 
 export interface PeerInstance {
