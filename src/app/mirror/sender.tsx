@@ -26,12 +26,14 @@ import {
   MAX_FILE_BYTES,
   canShareScreen,
   fmtBytes,
+  isIOS,
   isSignalingError,
   isValidMirrorCode,
   loadPeerClass,
   mirrorFailMessage,
   mirrorPeerId,
   peerCommonOpts,
+  tuneVideoSenders,
   type MirrorControl,
   type MirrorFail,
   type MirrorPong,
@@ -67,6 +69,8 @@ export default function MirrorSender() {
   /* feedback INMEDIATO al tocar una opción (cámara/pantalla): sin esto, un
    * fallo silencioso de getUserMedia parecía «no pasa nada al picar». */
   const [acquiring, setAcquiring] = useState<"" | "Cámara" | "Pantalla">("");
+  /* qué se está retransmitiendo (para avisos específicos en directo) */
+  const [liveLabel, setLiveLabel] = useState<"Cámara" | "Pantalla">("Cámara");
 
   const peerRef = useRef<PeerInstance | null>(null);
   const connRef = useRef<PeerDataConn | null>(null);
@@ -309,34 +313,65 @@ export default function MirrorSender() {
         if (streamRef.current) stopLive();
 
         let stream: MediaStream;
-        const acquire =
-          label === "Pantalla"
-            ? navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-            : navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
-                audio: { echoCancellation: true, noiseSuppression: true },
-              });
-        // iOS puede dejar getUserMedia colgado tras volver de 2º plano: con
-        // tope, el botón siempre acaba respondiendo (antes: giro eterno).
-        stream = await Promise.race([
-          acquire,
-          sleep(GM_TIMEOUT).then(() => {
-            throw new Error("la cámara tardó más de 15 s en responder (suele pasar al volver de segundo plano): recarga la página y reintenta");
-          }),
-        ]).catch((e: Error) => {
+        const isScreen = label === "Pantalla";
+        /* CALIDAD: pedir 1080p y 30–60 fps en vez de «video: true» (que
+         * dejaba la resolución/bitrate por defecto → imagen borrosa en el
+         * proyector). La cámara sube a 1920×1080 y la pantalla se captura a
+         * resolución nativa con tope de 60 fps. */
+        const acquire = isScreen
+          ? navigator.mediaDevices.getDisplayMedia({
+              video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 60 } },
+              audio: true,
+            })
+          : navigator.mediaDevices.getUserMedia({
+              video: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+              audio: { echoCancellation: true, noiseSuppression: true },
+            });
+        try {
+          if (isScreen) {
+            // el selector nativo de pantalla puede quedar abierto el tiempo
+            // que el usuario necesite: NO aplicar el tope de 15 s (daba un
+            // falso error si tardabas en elegir la pestaña)
+            stream = await acquire;
+          } else {
+            // iOS puede dejar getUserMedia colgado tras volver de 2º plano:
+            // con tope, el botón siempre acaba respondiendo (antes: giro eterno)
+            stream = await Promise.race([
+              acquire,
+              sleep(GM_TIMEOUT).then(() => {
+                throw new Error("la cámara tardó más de 15 s en responder (suele pasar al volver de segundo plano): recarga la página y reintenta");
+              }),
+            ]);
+          }
+        } catch (e) {
           const name = (e as Error & { name?: string }).name ?? "";
           const detail = String((e as Error).message ?? e);
           const hint =
             name === "NotAllowedError"
-              ? " Permite la cámara: Ajustes › Safari › Cámara (o Ajustes ›[esta página web]› Cámara)."
+              ? isScreen
+                ? " Si cancelaste el selector, vuelve a pulsar y elige la pestaña a compartir."
+                : " Permite la cámara: Ajustes › Safari › Cámara (o Ajustes ›[esta página web]› Cámara)."
               : "";
-          throw new Error(`No se pudo acceder a ${label === "Pantalla" ? "la pantalla" : "la cámara"}: ${detail}.${hint}`);
-        });
+          throw new Error(`No se pudo acceder a ${isScreen ? "la pantalla" : "la cámara"}: ${detail}.${hint}`);
+        }
         setErr("");
         streamRef.current = stream;
 
+        // contentHint: «detail» (nitidez de texto) para pantalla, «motion» para cámara
+        const vTrack = stream.getVideoTracks()[0];
+        if (vTrack) {
+          try { vTrack.contentHint = isScreen ? "detail" : "motion"; } catch { /* ignore */ }
+        }
+
         const call = peer0.call(mirrorPeerId(codeRef.current), stream);
         callRef.current = call;
+        // bitrate alto + mantener resolución (se re-aplica cuando el canal
+        // abra y unos segundos después: los senders nacen con la negociación)
+        const retune = () => tuneVideoSenders(call, isScreen);
+        retune();
+        try { call.on("open", retune); } catch { /* MediaConnection sin open */ }
+        window.setTimeout(retune, 1500);
+        window.setTimeout(retune, 3500);
         call.on("close", () => {
           streamRef.current?.getTracks().forEach((t) => t.stop());
           streamRef.current = null;
@@ -345,6 +380,7 @@ export default function MirrorSender() {
 
         conn0.send({ t: "live-start", label } satisfies MirrorControl);
         setMode("live");
+        setLiveLabel(isScreen ? "Pantalla" : "Cámara");
 
         // preview local (sin sonido para no acoplar)
         if (previewRef.current) {
@@ -404,6 +440,7 @@ export default function MirrorSender() {
   /* ---------- UI ---------- */
 
   const screenOK = canShareScreen();
+  const ios = isIOS();
 
   return (
     <main className="min-h-dvh bg-gradient-to-b from-[#0d1424] to-[#070b14] text-neutral-100">
@@ -487,11 +524,15 @@ export default function MirrorSender() {
             {mode === "live" ? (
               <div className="overflow-hidden rounded-3xl border border-red-400/30 bg-black">
                 <div className="relative">
-                  <video ref={previewRef} muted playsInline className="max-h-64 w-full bg-black object-contain" />
+                  <video ref={previewRef} muted playsInline className="max-h-[45vh] w-full bg-black object-contain" />
                   <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-full bg-red-500/90 px-2.5 py-1 text-[10px] font-bold uppercase text-white">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> en vivo
                   </div>
                 </div>
+                <p className="border-b border-white/5 px-4 pb-3 pt-2 text-center text-[10.5px] leading-relaxed text-neutral-500">
+                  El aula está viendo esto en directo.
+                  {liveLabel === "Pantalla" && ios && " Al compartir la pestaña, no cambies de app ni de pestaña: la imagen se congelaría hasta que vuelvas."}
+                </p>
                 <button
                   onClick={stopLive}
                   className="flex w-full items-center justify-center gap-2 py-4 text-[14px] font-bold text-red-300 transition active:bg-white/5"
@@ -511,6 +552,12 @@ export default function MirrorSender() {
               </div>
             ) : (
               <>
+                {ios && screenOK && (
+                  <div className="rounded-2xl border border-sky-400/25 bg-sky-400/10 px-4 py-3 text-[11px] leading-relaxed text-sky-200/90">
+                    <b>En iPhone, Safari solo permite compartir en directo la pestaña actual</b> (ni otras pestañas ni otras apps: Apple lo reserva a sus apps nativas — así funciona también Zoom y Meet desde el navegador).
+                    Para que el aula vea <b>todo lo que haces</b> en cualquier app: graba la pantalla (⏺ Centro de control) y envíala abajo — se reproduce al instante.
+                  </div>
+                )}
                 <button
                   onClick={() => void goLive("Cámara")}
                   disabled={!!acquiring}
@@ -535,8 +582,10 @@ export default function MirrorSender() {
                       {acquiring === "Pantalla" ? <Loader2 size={22} className="animate-spin text-emerald-300" /> : <MonitorSmartphone size={22} className="text-emerald-300" />}
                     </span>
                     <span>
-                      <span className="block text-[15px] font-bold">{acquiring === "Pantalla" ? "Abriendo pantalla…" : "Compartir pantalla"}</span>
-                      <span className="block text-[11.5px] leading-snug text-neutral-400">Duplica tu pantalla en directo</span>
+                      <span className="block text-[15px] font-bold">{acquiring === "Pantalla" ? "Abriendo pantalla…" : ios ? "Compartir esta pestaña" : "Compartir pantalla"}</span>
+                      <span className="block text-[11.5px] leading-snug text-neutral-400">
+                        {ios ? "Safari solo permite esta pestaña en directo — el resto, con una grabación" : "Duplica tu pantalla en directo"}
+                      </span>
                     </span>
                   </button>
                 )}

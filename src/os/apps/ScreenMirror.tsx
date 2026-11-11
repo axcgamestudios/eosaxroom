@@ -9,8 +9,9 @@
    (/mirror), se empareja con el código y envía:
      · Cámara en vivo (stream WebRTC con audio)
      · Grabaciones de pantalla (fichero por el canal de datos)
-     · Pantalla en vivo (desde Mac/PC/Android; Apple no permite
-       capturar la pantalla del iPhone desde Safari)
+     · Pantalla en vivo (en iPhone: SOLO la pestaña del emisor —
+       así lo permite Safari; pantalla completa desde Mac/PC/
+       Android. Para ver TODO el iPhone está la ruta grabación)
    peerjs se carga como UMD propio (public/vendor) y qrcode con
    import() dinámico: nada pesa en el arranque del sistema.
 
@@ -48,7 +49,7 @@ type Phase =
 /* límites de auto-reparación (sin bucles infinitos) */
 const MAX_SIGNAL_RESPINS = 6; // re-spins con el mismo código tras fallos de señalización
 
-export default function ScreenMirrorApp(_props: AppProps) {
+export default function ScreenMirrorApp({ win }: AppProps) {
   const notify = useOS((s) => s.notify);
   const [phase, setPhase] = useState<Phase>({ s: "boot" });
   const [code, setCode] = useState("");
@@ -58,6 +59,8 @@ export default function ScreenMirrorApp(_props: AppProps) {
   const [muted, setMuted] = useState(true);
   const [fileProgress, setFileProgress] = useState<{ got: number; total: number } | null>(null);
   const [signal, setSignal] = useState<"ok" | "off" | "err">("ok");
+  /* resolución real del vídeo recibido (verifica de un vistazo la calidad) */
+  const [res, setRes] = useState("");
 
   const peerRef = useRef<PeerInstance | null>(null);
   const offlineRef = useRef(false); // peer desconectado de la señalización
@@ -71,6 +74,19 @@ export default function ScreenMirrorApp(_props: AppProps) {
   const spinTokenRef = useRef(0); // invalida spins obsoletos (carreras)
   const respinsRef = useRef(0); // re-spins consecutivos sin éxito
   const idRetryRef = useRef(0); // colisiones unavailable-id consecutivas
+  const winIdRef = useRef(win.id); // estable entre renders
+  const zoomedRef = useRef(false); // ya se maximizó para este contenido
+
+  /* TAMAÑO ADAPTADO: al llegar vídeo/grabación, la ventana se maximiza
+   * sola (zoomWindow) — antes el vídeo llegaba a una ventana de 900×620 y
+   * en un proyector quedaba pequeño («el tamaño no está adaptado»). */
+  const ensureZoomed = () => {
+    if (zoomedRef.current) return;
+    zoomedRef.current = true;
+    const st = useOS.getState();
+    const w = st.windows.find((x) => x.id === winIdRef.current);
+    if (w && !w.maximized) st.zoomWindow(winIdRef.current);
+  };
 
   /* ---------- mensajes del emisor ---------- */
 
@@ -96,6 +112,7 @@ export default function ScreenMirrorApp(_props: AppProps) {
         break;
       case "live-start":
         setFileProgress(null);
+        ensureZoomed();
         setPhase({ s: "live", label: msg.label || "En vivo" });
         break;
       case "live-stop":
@@ -111,6 +128,7 @@ export default function ScreenMirrorApp(_props: AppProps) {
         fileRef.current = null;
         setFileProgress(null);
         if (f) {
+          ensureZoomed();
           const blob = new Blob(f.chunks, { type: f.mime });
           const url = URL.createObjectURL(blob);
           setPhase({ s: "file", name: f.name, size: f.size, url });
@@ -248,11 +266,16 @@ export default function ScreenMirrorApp(_props: AppProps) {
         call.answer(); // sin stream local: solo recibimos
         call.on("stream", (remote) => {
           setMuted(true);
+          ensureZoomed();
           setPhase((p) => (p.s === "live" ? p : { s: "live", label: p.s === "connecting" ? "iPhone" : "live" }));
           requestAnimationFrame(() => {
             const v = videoRef.current;
             if (v) {
               v.srcObject = remote as MediaStream;
+              // resolución recibida en vivo (comprueba la calidad de un vistazo)
+              const updRes = () => setRes(v.videoWidth ? `${v.videoWidth}×${v.videoHeight}` : "");
+              v.onresize = updRes;
+              updRes();
               v.play().catch(() => { /* autoplay silenciado siempre permitido */ });
             }
           });
@@ -275,7 +298,9 @@ export default function ScreenMirrorApp(_props: AppProps) {
     callRef.current = null;
     busyRef.current = false;
     fileRef.current = null;
+    zoomedRef.current = false; // el próximo contenido vuelve a maximizar
     setFileProgress(null);
+    setRes("");
     if (videoRef.current) videoRef.current.srcObject = null;
     setPhase({ s: "ready" });
     notify("mirror", "Duplicar pantalla", why);
@@ -417,7 +442,7 @@ export default function ScreenMirrorApp(_props: AppProps) {
               {phase.s === "connecting" ? (
                 <div className="flex items-center gap-3 rounded-xl border border-sky-400/25 bg-sky-400/10 px-4 py-3 text-[12px] text-sky-200">
                   <Smartphone size={16} className="shrink-0 animate-pulse" />
-                  iPhone conectado. Elige en el móvil «Cámara en vivo», «Compartir pantalla» o envía una grabación.
+                  iPhone conectado. Elige en el móvil qué enviar: cámara en vivo, compartir su pestaña o una grabación.
                 </div>
               ) : (
                 <ol className="space-y-3 text-[12px] leading-relaxed text-neutral-300">
@@ -427,11 +452,11 @@ export default function ScreenMirrorApp(_props: AppProps) {
                   </li>
                   <li className="flex gap-3">
                     <Step n={2} />
-                    <span>En la página que se abre, elige <b>Cámara en vivo</b> para verte en directo, o envía una <b>grabación de pantalla</b>.</span>
+                    <span>En la página que se abre, elige <b>Cámara en vivo</b>, <b>comparte la pestaña</b> o envía una <b>grabación de pantalla</b>.</span>
                   </li>
                   <li className="flex gap-3">
                     <Step n={3} />
-                    <span>Esta pantalla mostrará tu iPhone <b>al instante</b>, con sonido incluido.</span>
+                    <span>Esta pantalla mostrará tu iPhone <b>al instante</b>, con sonido incluido — y la ventana se maximiza sola para el proyector.</span>
                   </li>
                 </ol>
               )}
@@ -444,9 +469,9 @@ export default function ScreenMirrorApp(_props: AppProps) {
                 Probar el emisor en este mismo equipo ↗
               </a>
               <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3.5 text-[10.5px] leading-relaxed text-neutral-400">
-                <p className="mb-1 font-semibold text-neutral-300">Cómo grabar la pantalla del iPhone</p>
+                <p className="mb-1 font-semibold text-neutral-300">Cómo enseñar TODO el iPhone</p>
                 Centro de control → botón <b>Grabación</b> (⏺) → mantén pulsado y activa el micrófono si quieres. Detén la grabación, ábrela en Fotos y envíala desde la página del enlace.
-                <p className="mt-2 text-neutral-500">La duplicación <b>en vivo</b> de la pantalla completa solo está disponible enviando desde Mac, PC o Android. Apple no permite capturar la pantalla del iPhone desde el navegador.</p>
+                <p className="mt-2 text-neutral-500">En iPhone, Safari solo permite compartir en directo <b>la pestaña del emisor</b> (limitación de Apple: ni otras pestañas ni otras apps — igual en Zoom o Meet desde el navegador). La <b>grabación</b> capta cualquier app y se reproduce aquí al instante.</p>
               </div>
             </div>
           </div>
@@ -454,11 +479,16 @@ export default function ScreenMirrorApp(_props: AppProps) {
 
         {phase.s === "live" && (
           <div className="flex h-full flex-col">
-            <div className="relative flex-1 bg-black">
+            <div className="relative min-h-0 flex-1 bg-black">
               <video ref={videoRef} autoPlay playsInline muted={muted} className="h-full w-full object-contain" />
               <div className="pointer-events-none absolute left-3 top-3 flex items-center gap-2 rounded-full bg-red-500/90 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-white">
                 <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" /> en vivo · {phase.label}
               </div>
+              {res && (
+                <div className="pointer-events-none absolute right-3 top-3 rounded-full bg-black/60 px-2.5 py-1 font-mono text-[10px] font-semibold text-neutral-200 backdrop-blur">
+                  {res}
+                </div>
+              )}
               {muted && (
                 <button
                   onClick={() => setMuted(false)}
@@ -469,7 +499,9 @@ export default function ScreenMirrorApp(_props: AppProps) {
               )}
             </div>
             <div className="flex items-center gap-2 border-t border-white/8 px-4 py-2.5">
-              <span className="text-[11px] text-neutral-400">Recibiendo vídeo y audio del iPhone en directo</span>
+              <span className="min-w-0 truncate text-[11px] text-neutral-400">
+                Recibiendo vídeo y audio del iPhone en directo{res ? ` · ${res}` : ""}
+              </span>
               <div className="ml-auto flex items-center gap-2">
                 <button
                   onClick={() => setMuted((m) => !m)}
@@ -487,7 +519,7 @@ export default function ScreenMirrorApp(_props: AppProps) {
 
         {phase.s === "file" && (
           <div className="flex h-full flex-col">
-            <div className="flex-1 bg-black">
+            <div className="min-h-0 flex-1 bg-black">
               <video src={phase.url} controls autoPlay className="h-full w-full object-contain" />
             </div>
             <div className="flex items-center gap-2 border-t border-white/8 px-4 py-2.5">
