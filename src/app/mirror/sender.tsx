@@ -17,6 +17,11 @@
      · signal  → la red bloquea 0.peerjs.com (WebSockets)
      · channel → la señalización pasa pero el canal directo (ICE) no
    (antes todo caía en un único «no se encontró el código»).
+
+   SEGUNDO PLANO (iOS): mientras hay conexión suena un audio casi
+   mudo (inaudible) → iOS no suspende la pestaña al cambiar de app
+   (como la música en Safari). Al volver, el directo continúa solo;
+   y si iOS mató el vídeo, se re-adquiere el mismo modo sola.
    ============================================================ */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -57,6 +62,35 @@ const PONG_STALE = 18000; // sin respuesta → conexión zombi
 
 const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 
+/* ---------- mantener la pestaña viva en 2º plano (iOS) ----------
+   iOS suspende Safari al cambiar de app: la conexión moría en
+   silencio. Mientras una pestaña reproduce audio (aunque sea
+   inaudible), iOS la mantiene viva — como una app de música en
+   Safari. Generamos un WAV de 2 s con un seno a −80 dB (audio real
+   pero imperceptible) que suena en bucle + un oscilador WebAudio de
+   respaldo. Arranca con un toque del usuario (política de autoplay
+   de iOS) y se reintenta en cada acción posterior. */
+let silentWavUrl = "";
+function makeSilentWavUrl(): string {
+  if (silentWavUrl) return silentWavUrl;
+  const sr = 22050;
+  const n = sr * 2; // 2 s
+  const buf = new Uint8Array(44 + n * 2);
+  const dv = new DataView(buf.buffer);
+  const wr = (o: number, s: string) => {
+    for (let i = 0; i < s.length; i++) buf[o + i] = s.charCodeAt(i);
+  };
+  wr(0, "RIFF"); dv.setUint32(4, 36 + n * 2, true); wr(8, "WAVE"); wr(12, "fmt ");
+  dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr * 2, true); dv.setUint16(32, 2, true);
+  dv.setUint16(34, 16, true); wr(36, "data"); dv.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) {
+    dv.setInt16(44 + i * 2, Math.round(Math.sin((i / sr) * Math.PI * 100) * 3), true); // 50 Hz a −80 dB
+  }
+  silentWavUrl = URL.createObjectURL(new Blob([buf], { type: "audio/wav" }));
+  return silentWavUrl;
+}
+
 export default function MirrorSender() {
   /* código: del QR (?c=…) o tecleado */
   const [input, setInput] = useState("");
@@ -83,6 +117,58 @@ export default function MirrorSender() {
   const modeRef = useRef<Mode>("idle");
   const connUiRef = useRef<Conn>("setup");
   const lastPongRef = useRef(Date.now()); // latido: última señal de vida del receptor
+  const liveLabelRef = useRef<"Cámara" | "Pantalla">("Cámara"); // modo actual (para reanudarlo)
+  const kaRef = useRef<{ audio?: HTMLAudioElement; osc?: OscillatorNode; ctx?: AudioContext } | null>(null); // keep-alive 2º plano
+  const repairingRef = useRef(false); // hay una reanudación automática en marcha
+  const endedHiddenRef = useRef(false); // iOS cortó la captura al pasar a 2º plano
+  const visibleSinceRef = useRef(Date.now()); // cuándo volvimos a primer plano
+
+  /* ---------- keep-alive de 2º plano (audio casi mudo) ---------- */
+
+  const startKeepAlive = useCallback(() => {
+    let ka = kaRef.current;
+    if (!ka) {
+      ka = {};
+      try {
+        // vía principal: <audio> en bucle (la que iOS respeta como «música»)
+        const a = new Audio(makeSilentWavUrl());
+        a.loop = true;
+        a.volume = 0.0001;
+        ka.audio = a;
+      } catch { /* sin <audio>: queda el WebAudio */ }
+      try {
+        type WebkitWin = Window & { webkitAudioContext?: typeof AudioContext };
+        const AC = window.AudioContext ?? (window as WebkitWin).webkitAudioContext;
+        if (AC) {
+          const ctx = new AC();
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          gain.gain.value = 0.0001; // −80 dB: inaudible
+          osc.frequency.value = 50;
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
+          ka.ctx = ctx;
+          ka.osc = osc;
+        }
+      } catch { /* sin WebAudio */ }
+      if (ka.audio || ka.osc) kaRef.current = ka;
+      else return;
+    }
+    // (re)intentar arrancar: iOS exige gesto; si aún no lo hay, el próximo
+    // toque lo consigue (startKeepAlive se llama en cada acción)
+    try { if (ka.audio?.paused) void ka.audio.play().catch(() => { /* sin gesto aún */ }); } catch { /* ignore */ }
+    try { void ka.ctx?.resume().catch(() => { /* ignore */ }); } catch { /* ignore */ }
+  }, []);
+
+  const stopKeepAlive = useCallback(() => {
+    const ka = kaRef.current;
+    kaRef.current = null;
+    if (!ka) return;
+    try { ka.audio?.pause(); } catch { /* ignore */ }
+    try { ka.osc?.stop(); } catch { /* ignore */ }
+    try { void ka.ctx?.close(); } catch { /* ignore */ }
+  }, []);
 
   /* ---------- conexión con la pantalla del OS ---------- */
 
@@ -98,9 +184,12 @@ export default function MirrorSender() {
     callRef.current = null;
     connRef.current = null;
     peerRef.current = null;
+    repairingRef.current = false;
+    endedHiddenRef.current = false;
+    stopKeepAlive();
     setMode("idle");
     setSendProgress(null);
-  }, []);
+  }, [stopKeepAlive]);
 
   /** Un intento completo: crea peer anónimo, conecta al código y
    *  resuelve con la CAUSA del fallo (no un genérico). */
@@ -170,6 +259,7 @@ export default function MirrorSender() {
         return;
       }
       setErr("");
+      startKeepAlive(); // con gesto (botón): la conexión ya puede sobrevivir al 2º plano
       setConn("connecting");
       setCode(c);
       codeRef.current = c;
@@ -219,7 +309,7 @@ export default function MirrorSender() {
         await sleep(RETRY_WAIT_MS);
       }
     },
-    [cleanup, oneShot]
+    [cleanup, oneShot, startKeepAlive]
   );
 
   /* código inicial de la URL: AUTO-CONNECTAR (viene del QR — el usuario
@@ -241,46 +331,7 @@ export default function MirrorSender() {
   /* refs espejo del estado (para el latido sin re-suscribir efectos) */
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { connUiRef.current = conn; }, [conn]);
-
-  /* ---------- latido: detecta la conexión muerta y la AUTO-REPARA ----------
-     iOS suspende la pestaña en 2º plano: el canal muere EN SILENCIO (sin
-     "close") y al volver los botones hacían return silencioso → «picas y no
-     pasa nada». Ahora: ping cada 5 s; sin pong en 18 s o canal cerrado →
-     se reconecta con el MISMO código (la pantalla del aula lo conserva). */
-  useEffect(() => {
-    const check = () => {
-      if (document.visibilityState !== "visible") return;
-      if (connUiRef.current !== "ready" || modeRef.current === "sending") return;
-      const d = connRef.current;
-      const dead = !d || !d.open || Date.now() - lastPongRef.current > PONG_STALE;
-      if (!dead) {
-        try { d?.send({ t: "ping" } satisfies MirrorControl); } catch { /* close lo caza */ }
-        return;
-      }
-      const c = codeRef.current;
-      if (!c) return;
-      if (modeRef.current === "live") {
-        // el vídeo P2P puede seguir vivo aunque el control haya muerto: no
-        // cortar la retransmisión, solo avisar (al Detener se reconecta)
-        setErr("Se perdió la conexión de control (pestaña en 2º plano). Si el vídeo llegó congelado a la pantalla, pulsa «Detener y elegir otra cosa»: se reconectará sola.");
-        return;
-      }
-      setErr("Se perdió la conexión al cambiar de pestaña. Reconectando con el mismo código…");
-      void connect(c);
-    };
-    const id = window.setInterval(check, PING_EVERY);
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        lastPongRef.current = Date.now(); // margen fresco al volver
-        check();
-      }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      window.clearInterval(id);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [connect]);
+  useEffect(() => { liveLabelRef.current = liveLabel; }, [liveLabel]);
 
   /* ---------- retransmitir un MediaStream ---------- */
 
@@ -300,6 +351,7 @@ export default function MirrorSender() {
       const peer0 = peerRef.current;
       const acquiringLabel = label === "Pantalla" ? "Pantalla" : "Cámara";
       setAcquiring(acquiringLabel);
+      startKeepAlive(); // gesto del usuario: el 2º plano ya no matará la conexión
       try {
         // conexión muerta (pestaña en 2º plano, receptor caído): NUNCA más un
         // return silencioso — se reconecta con el mismo código y se avisa.
@@ -388,16 +440,108 @@ export default function MirrorSender() {
           previewRef.current.play().catch(() => { /* ignore */ });
         }
 
-        // si se detiene desde el diálogo nativo del navegador
-        stream.getVideoTracks()[0]?.addEventListener("ended", stopLive);
+        // si se detiene desde el diálogo nativo del navegador. OJO: si la
+        // pista muere CON la pestaña en 2º plano (iOS interrumpe la captura),
+        // NO se desmonta nada: al volver, la reanudación relanza el modo sola.
+        stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+          if (document.visibilityState === "hidden") {
+            endedHiddenRef.current = true;
+            return;
+          }
+          stopLive();
+        });
       } catch (e) {
         setErr(String((e as Error).message ?? e));
       } finally {
         setAcquiring("");
       }
     },
-    [stopLive, connect]
+    [stopLive, connect, startKeepAlive]
   );
+
+  /* ---------- latido + reanudación automática tras 2º plano ----------
+     Ping cada 5 s (TAMBIÉN ocultos si el keep-alive mantiene la página
+     viva): el receptor así sigue viéndonos vivos y no libera el punto.
+     Si el canal muere: reconexión con el MISMO código. Si además murió
+     el VÍDEO (iOS interrumpe cámara/pestaña compartida), se relanza el
+     mismo modo sola — sin pedirle nada al usuario. */
+  useEffect(() => {
+    const resumeLive = (delay: number) => {
+      window.setTimeout(() => {
+        const t = streamRef.current?.getVideoTracks()[0];
+        if (
+          modeRef.current === "live" &&
+          !repairingRef.current &&
+          (endedHiddenRef.current || !t || t.readyState === "ended" || t.muted)
+        ) {
+          endedHiddenRef.current = false;
+          setErr("Reanudando la retransmisión…");
+          void goLive(liveLabelRef.current);
+        }
+      }, delay);
+    };
+    const check = () => {
+      if (repairingRef.current) return;
+      if (connUiRef.current !== "ready" || modeRef.current === "sending") return;
+      const d = connRef.current;
+      const dead = !d || !d.open || Date.now() - lastPongRef.current > PONG_STALE;
+      if (!dead) {
+        // ping SIEMPRE (también ocultos): el receptor nos sigue viendo vivos
+        try { d?.send({ t: "ping" } satisfies MirrorControl); } catch { /* close lo caza */ }
+        return;
+      }
+      // reparar solo en primer plano (donde la interacción es posible)
+      if (document.visibilityState !== "visible") return;
+      const c = codeRef.current;
+      if (!c) return;
+      if (modeRef.current === "live") {
+        const t = streamRef.current?.getVideoTracks()[0];
+        const mediaGone =
+          !t || t.readyState === "ended" || (t.muted && Date.now() - visibleSinceRef.current > 8000);
+        if (mediaGone) {
+          // iOS mató la retransmisión al 2º plano sin avisar: relanzarla
+          // SOLA (control + vídeo, mismo modo, sin pedirle nada)
+          repairingRef.current = true;
+          setErr("Reanudando la retransmisión tras el segundo plano…");
+          void (async () => {
+            try {
+              stopLive();
+              if (!connRef.current?.open) await connect(c);
+              if (connRef.current?.open && modeRef.current !== "live") {
+                await goLive(liveLabelRef.current);
+              }
+            } catch { /* goLive ya pinta su error */ }
+            finally { repairingRef.current = false; }
+          })();
+        } else {
+          // el vídeo P2P puede seguir fluyendo aunque el control muriera
+          setErr("Se perdió la conexión de control, pero el vídeo sigue llegando al aula. Si se ve congelado, pulsa «Detener y elegir otra cosa».");
+        }
+        return;
+      }
+      setErr("Se perdió la conexión al cambiar de pestaña. Reconectando con el mismo código…");
+      void connect(c);
+    };
+    const id = window.setInterval(check, PING_EVERY);
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      lastPongRef.current = Date.now(); // margen fresco al volver
+      visibleSinceRef.current = Date.now();
+      // al volver de 2º plano: si el vídeo quedó muerto/muteado, reanudarlo
+      if (modeRef.current === "live" && !repairingRef.current) {
+        const t = streamRef.current?.getVideoTracks()[0];
+        if (endedHiddenRef.current || !t || t.readyState === "ended" || t.muted) {
+          resumeLive(2500); // margen: iOS tarda un instante en reactivar la pista
+        }
+      }
+      check();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [connect, goLive, stopLive]);
 
   /* ---------- enviar una grabación (fichero) ---------- */
 
@@ -530,8 +674,7 @@ export default function MirrorSender() {
                   </div>
                 </div>
                 <p className="border-b border-white/5 px-4 pb-3 pt-2 text-center text-[10.5px] leading-relaxed text-neutral-500">
-                  El aula está viendo esto en directo.
-                  {liveLabel === "Pantalla" && ios && " Al compartir la pestaña, no cambies de app ni de pestaña: la imagen se congelaría hasta que vuelvas."}
+                  El aula está viendo esto en directo. Ya puedes salir de Safari: la conexión se mantiene viva y al volver continúa solo (mientras estés fuera, la imagen queda en pausa).
                 </p>
                 <button
                   onClick={stopLive}
@@ -555,6 +698,7 @@ export default function MirrorSender() {
                 {ios && screenOK && (
                   <div className="rounded-2xl border border-sky-400/25 bg-sky-400/10 px-4 py-3 text-[11px] leading-relaxed text-sky-200/90">
                     <b>En iPhone, Safari solo permite compartir en directo la pestaña actual</b> (ni otras pestañas ni otras apps: Apple lo reserva a sus apps nativas — así funciona también Zoom y Meet desde el navegador).
+                    Con el directo abierto puedes <b>salir de Safari sin perder la conexión</b>: la página sigue viva en segundo plano y al volver continúa sola.
                     Para que el aula vea <b>todo lo que haces</b> en cualquier app: graba la pantalla (⏺ Centro de control) y envíala abajo — se reproduce al instante.
                   </div>
                 )}
