@@ -15,9 +15,11 @@ import {
   Mail as MailIconLucide,
   KeyRound,
   MonitorDown,
-  MoreVertical,
+  MoreHorizontal,
+  PanelLeft,
   Plus,
   RotateCw,
+  Share2,
   Search,
   Settings2,
   ShieldAlert,
@@ -54,7 +56,7 @@ import {
 import { looksLikeErrorPage } from "../engine/pageload";
 
 /* ============================================================
-   Safari axcsOS v4 — motor real Scramjet (SW + wisp)
+   Safari macOS v4 — motor real Scramjet (SW + wisp)
    - Pestañas múltiples con estado independiente (iframes vivos)
    - Barra de direcciones: URL, dominio o búsqueda (DDG integrado)
    - Atrás/Adelante/Recargar/Detener/Inicio reales (ScramjetFrame)
@@ -227,6 +229,8 @@ export default function SafariApp({ win }: AppProps) {
   const [address, setAddress] = useState("");
   const [engineDiag, setEngineDiag] = useState<EngineDiagnostics>(getDiagnostics());
   const [panel, setPanel] = useState<null | "bookmarks" | "history">(null);
+  const [addrEditing, setAddrEditing] = useState(false);
+  const addrInputRef = useRef<HTMLInputElement>(null);
   const [installOpen, setInstallOpen] = useState(false);
   const [installName, setInstallName] = useState("");
   const [dismissedLoginUrl, setDismissedLoginUrl] = useState("");
@@ -251,7 +255,7 @@ export default function SafariApp({ win }: AppProps) {
   /* ---------------- asistente de acceso (autocompletado) ----------------
      El hook sondea la pestaña activa: detecta formularios de inicio de
      sesión (las páginas del motor son mismo-origen → DOM legible), ofrece
-     el correo @axcs.os del perfil y las contraseñas guardadas
+     el correo @icloud.com del perfil y las contraseñas guardadas
      de la bóveda (AES-256), y captura credenciales nuevas al enviar. */
   const autofillCtxRef = useRef<AutofillCtx>({
     getUrl: () => tabsRef.current[activeRef.current]?.url ?? "",
@@ -679,14 +683,14 @@ export default function SafariApp({ win }: AppProps) {
     navigator.clipboard
       ?.writeText(id.email)
       .then(() => notify("safari", "Correo copiado", "Esta página no permite relleno automático; pégalo con ⌘V"))
-      .catch(() => notify("safari", "Tu correo de axcsOS", id.email));
+      .catch(() => notify("safari", "Tu correo de macOS", id.email));
   }, [assistant, activeDoc, notify]);
 
   /** rellena la credencial guardada del dominio (usuario + contraseña cifrada) */
   const doFillSaved = useCallback(async () => {
     const r = await assistant.fillSaved(activeDoc(), snap.host);
     if (r === "filled") notify("safari", "Credencial rellenada", `${snap.savedUsername ?? snap.host} — pulsa Entrar cuando quieras`);
-    else if (r === "no-saved") notify("safari", "Sin contraseña guardada", `${snap.host} no tiene credenciales en axcsOS todavía`);
+    else if (r === "no-saved") notify("safari", "Sin contraseña guardada", `${snap.host} no tiene credenciales en macOS todavía`);
     else notify("safari", "Formulario no accesible", "Esta página no permite el relleno automático");
   }, [assistant, activeDoc, snap.host, snap.savedUsername, notify]);
 
@@ -695,7 +699,7 @@ export default function SafariApp({ win }: AppProps) {
     const r = await assistant.fillAndSubmit(activeDoc(), snap.host);
     if (r === "sent") notify("safari", "Entrando…", `Credencial de ${snap.host} enviada`);
     else if (r === "filled") notify("safari", "Credencial rellenada", "La página no dejó pulsar su botón: pulsa tú el de entrar");
-    else if (r === "no-saved") notify("safari", "Sin contraseña guardada", `${snap.host} no tiene credenciales en axcsOS todavía`);
+    else if (r === "no-saved") notify("safari", "Sin contraseña guardada", `${snap.host} no tiene credenciales en macOS todavía`);
   }, [assistant, activeDoc, snap.host, notify]);
 
   /* ---------------- instalar la página actual como app ---------------- */
@@ -728,7 +732,7 @@ export default function SafariApp({ win }: AppProps) {
      responden "este navegador no es seguro" aunque todo lo demás sea real.
      La solución honesta es abrir el flujo en una VENTANA REAL del navegador:
      - Por el motor: /popup comparte origen y Service Worker con el OS →
-       misma sesión de axcsOS (al cerrar, esta pestaña se recarga sola).
+       misma sesión de macOS (al cerrar, esta pestaña se recarga sola).
      - Con mi conexión: la ventana navega al sitio real (IP del usuario,
        sin motor); la sesión queda en su navegador. */
   const openRealWindow = useCallback(
@@ -756,8 +760,8 @@ export default function SafariApp({ win }: AppProps) {
         "safari",
         "Ventana real abierta",
         mode === "engine"
-          ? "La sesión que inicies ahí queda dentro de axcsOS: al cerrar la ventana, esta pestaña se recarga"
-          : "Se abrirá con tu conexión: la sesión quedará en tu navegador (fuera de axcsOS)"
+          ? "La sesión que inicies ahí queda dentro de macOS: al cerrar la ventana, esta pestaña se recarga"
+          : "Se abrirá con tu conexión: la sesión quedará en tu navegador (fuera de macOS)"
       );
     },
     [notify]
@@ -941,7 +945,7 @@ export default function SafariApp({ win }: AppProps) {
             notify(
               "safari",
               "Ventana real cerrada",
-              "Si iniciaste sesión con tu conexión, se quedó en tu navegador (no en axcsOS)"
+              "Si iniciaste sesión con tu conexión, se quedó en tu navegador (no en macOS)"
             );
           }
         }
@@ -1088,8 +1092,20 @@ export default function SafariApp({ win }: AppProps) {
   const showStart = !activeTabData || activeTabData.url === START;
   const showSearch = activeTabData?.url.startsWith(SEARCH_PREFIX) ?? false;
 
+  /* URL bonita para el campo (dominio en negrita + resto tenue, como Safari) */
+  const prettyUrl = useMemo(() => {
+    const t = activeTabData;
+    if (!t || showStart || showSearch) return null;
+    try {
+      const u = new URL(t.url);
+      return { host: u.host, rest: (u.pathname === "/" ? "" : u.pathname + u.search + u.hash) };
+    } catch {
+      return { host: t.url, rest: "" };
+    }
+  }, [activeTabData, showStart, showSearch]);
+
   return (
-    <div className="nav-theme dark relative flex h-full flex-col bg-[#0b101e]" onKeyDown={onKeyDownShell}>
+    <div className="nav-theme relative flex h-full flex-col bg-[var(--nav-page)]" onKeyDown={onKeyDownShell}>
       {/* banner de error del motor */}
       {engineError && (
         <div className="flex items-center gap-2 border-b border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-600 dark:text-rose-300">
@@ -1101,96 +1117,64 @@ export default function SafariApp({ win }: AppProps) {
         </div>
       )}
 
-      {/* franja de pestañas — estilo Chrome, se funde con la toolbar */}
-      <div className="flex h-11 shrink-0 items-end gap-1 bg-[var(--nav-strip)] px-2.5 pt-2">
-        {/* px/-mx: el padding interno del scroller deja sitio a los hombros curvos
-            (flares ±9px) de la pestaña activa sin que overflow los recorte */}
-        <div className="no-scrollbar -mx-2.5 flex min-w-0 flex-1 items-end gap-1 overflow-x-auto px-2.5">
-          {tabs.map((t, i) => (
-            <button
-              key={t.id}
-              onClick={() => setActiveTab(i)}
-              onDoubleClick={() => patchTab(t.id, { pinned: !t.pinned })}
-              className={`group flex h-[34px] shrink-0 items-center gap-1.5 rounded-t-[10px] px-2.5 text-[11.5px] transition-colors ${
-                i === activeTab
-                  ? "chrome-tab-active bg-[var(--nav-surface)] text-[var(--nav-text)]"
-                  : "text-[var(--nav-text-dim)] hover:bg-white/[0.06] hover:text-[var(--nav-text)]"
-              } ${t.pinned ? "w-11 justify-center" : "max-w-48 min-w-32"}`}
-              title={t.pinned ? `${t.title} (fijada: doble clic para desfijar)` : `${t.title} — doble clic para fijar`}
-            >
-              {t.loading ? (
-                <RotateCw size={11} className="shrink-0 animate-spin text-[var(--nav-accent)]" />
-              ) : t.favicon ? (
-                <img src={t.favicon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-[3px]" onError={(e) => ((e.target as HTMLImageElement).style.visibility = "hidden")} />
-              ) : (
-                <Globe size={11} className="shrink-0 opacity-60" />
-              )}
-              {!t.pinned && <span className="min-w-0 flex-1 truncate text-left">{t.title}</span>}
-              {!t.pinned && (
-                <span
-                  role="button"
-                  tabIndex={-1}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    closeTab(t.id);
-                  }}
-                  className="shrink-0 rounded-full p-0.5 opacity-0 transition hover:bg-white/15 group-hover:opacity-100"
-                >
-                  <X size={10} />
-                </span>
-              )}
-            </button>
-          ))}
-          <button
-            onClick={newTab}
-            className="mb-1 flex h-7 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text-dim)] transition hover:bg-[var(--nav-hover)] hover:text-[var(--nav-text)]"
-            title="Nueva pestaña (⌘T)"
-          >
-            <Plus size={14} />
-          </button>
-        </div>
-      </div>
+      {/* toolbar estilo Safari — arriba: sidebar, atrás/adelante (chevrones),
+          omnibox píldora centrado, compartir, nueva pestaña, extras */}
+      <div className="flex h-[52px] shrink-0 items-center gap-1.5 border-b border-[var(--nav-border)] bg-[var(--nav-surface)] px-2.5">
+        <button
+          onClick={() => setPanel(panel ? null : "bookmarks")}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition hover:bg-[var(--nav-hover)] ${panel ? "bg-[var(--nav-hover)] text-[var(--accent)]" : "text-[var(--nav-text)]"}`}
+          title="Barra lateral (marcadores e historial)"
+        >
+          <PanelLeft size={17} strokeWidth={1.8} />
+        </button>
+        <button onClick={() => cmd("back")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-25" title="Atrás" disabled={!activeTabData || activeTabData.hIndex <= 0}>
+          <ArrowLeft size={19} strokeWidth={1.9} />
+        </button>
+        <button onClick={() => cmd("forward")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-25" title="Adelante" disabled={!activeTabData || activeTabData.hIndex >= activeTabData.history.length - 1}>
+          <ArrowRight size={19} strokeWidth={1.9} />
+        </button>
 
-      {/* toolbar — fusionada con la pestaña activa (estilo Chrome) */}
-      <div className="flex h-11 shrink-0 items-center gap-1.5 border-b border-[var(--nav-border)] bg-[var(--nav-surface)] px-2.5">
-        <button onClick={() => cmd("back")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-30" title="Atrás" disabled={!activeTabData || activeTabData.hIndex <= 0}>
-          <ArrowLeft size={16} />
-        </button>
-        <button onClick={() => cmd("forward")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-30" title="Adelante" disabled={!activeTabData || activeTabData.hIndex >= activeTabData.history.length - 1}>
-          <ArrowRight size={16} />
-        </button>
-        <button onClick={() => cmd("reload")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-30" title="Recargar" disabled={showStart || showSearch}>
-          <RotateCw size={14} className={activeTabData?.loading ? "animate-spin" : ""} />
-        </button>
-        {activeTabData?.loading ? (
-          <button onClick={() => cmd("stop")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]" title="Detener carga">
-            <XCircle size={14} />
-          </button>
-        ) : (
-          <button
-            onClick={() => tabId && navigateTab(tabId, START)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]"
-            title="Página de inicio"
-          >
-            <Home size={15} />
-          </button>
-        )}
-        {/* omnibox: píldora central estilo Chrome */}
+        {/* omnibox: píldora centrada estilo Safari — dominio en negrita */}
         <form
-          className="flex h-[30px] min-w-0 flex-1 items-center gap-2 rounded-full border border-[var(--nav-border)] bg-[var(--nav-field)] px-3.5 transition focus-within:border-[var(--nav-accent)] focus-within:bg-[var(--nav-field-focus)] focus-within:ring-2 focus-within:ring-[var(--nav-accent)]/40"
+          className="relative mx-auto flex h-[30px] w-full min-w-0 max-w-[560px] flex-1 items-center gap-2 rounded-full border border-[var(--nav-border)] bg-[var(--nav-field)] px-3.5 shadow-sm transition focus-within:border-[var(--nav-accent)] focus-within:bg-[var(--nav-field-focus)] focus-within:ring-2 focus-within:ring-[var(--nav-accent)]/35"
           onSubmit={(e) => {
             e.preventDefault();
             submitAddress();
           }}
         >
-          {showStart || showSearch ? <Search size={12} className="shrink-0 text-[var(--nav-text-dim)]" /> : <Lock size={11} className="shrink-0 text-[var(--nav-accent)]" />}
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="Buscar en la web o escribir dirección (URL)"
-            spellCheck={false}
-            className="os-input h-full w-full min-w-0 bg-transparent text-[12px] text-[var(--nav-text)] outline-none placeholder:text-[var(--nav-text-dim)]"
-          />
+          {showStart || showSearch ? (
+            <Search size={13} className="shrink-0 text-[var(--nav-text-dim)]" />
+          ) : (
+            <Lock size={11} className="shrink-0 text-[var(--nav-text-dim)]" />
+          )}
+          {addrEditing || !prettyUrl ? (
+            <input
+              ref={addrInputRef}
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              onFocus={() => setAddrEditing(true)}
+              onBlur={() => setAddrEditing(false)}
+              placeholder="Buscar o introducir nombre de sitio web"
+              spellCheck={false}
+              className="os-input h-full w-full min-w-0 bg-transparent text-[12.5px] text-[var(--nav-text)] outline-none placeholder:text-[var(--nav-text-dim)]"
+            />
+          ) : (
+            <button
+              type="button"
+              className="flex h-full w-full min-w-0 items-center gap-1 truncate text-[12.5px] text-[var(--nav-text)]"
+              onClick={() => {
+                setAddrEditing(true);
+                requestAnimationFrame(() => {
+                  addrInputRef.current?.focus();
+                  addrInputRef.current?.select();
+                });
+              }}
+              title={activeTabData?.url}
+            >
+              <span className="shrink-0 font-semibold">{prettyUrl.host}</span>
+              {prettyUrl.rest && <span className="min-w-0 truncate text-[var(--nav-text-dim)]">{prettyUrl.rest}</span>}
+            </button>
+          )}
           {activeTabData?.direct && (
             <span
               className="flex h-[17px] shrink-0 items-center rounded-full bg-[var(--nav-accent)]/15 px-2 text-[9.5px] font-semibold text-[var(--nav-accent)]"
@@ -1199,34 +1183,53 @@ export default function SafariApp({ win }: AppProps) {
               directa
             </span>
           )}
-          {address && (
-            <button type="button" onClick={() => setAddress("")} className="shrink-0 text-[var(--nav-text-dim)] transition hover:text-[var(--nav-text)]">
-              <X size={11} />
+          {/* recarga/detener dentro del campo, como Safari 15+ */}
+          {!addrEditing && activeTabData && (
+            <button
+              type="button"
+              onClick={() => (activeTabData.loading ? cmd("stop") : cmd("reload"))}
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--nav-text-dim)] transition hover:bg-[var(--nav-hover)] hover:text-[var(--nav-text)]"
+              title={activeTabData.loading ? "Detener carga" : "Recargar página (⌘R)"}
+            >
+              <RotateCw size={12} className={activeTabData.loading ? "animate-spin" : ""} />
             </button>
           )}
-          <span className="h-4 w-px shrink-0 bg-[var(--nav-border)]" />
-          <button
-            type="button"
-            onClick={toggleBookmark}
-            className={`shrink-0 p-0.5 transition ${bookmarked ? "text-amber-300" : "text-[var(--nav-text-dim)] hover:text-[var(--nav-text)]"}`}
-            title={bookmarked ? "Quitar marcador" : "Añadir marcador"}
-          >
-            <Star size={13} fill={bookmarked ? "currentColor" : "none"} />
-          </button>
+          {!addrEditing && (
+            <button type="button" onClick={toggleBookmark} className={`shrink-0 p-0.5 transition ${bookmarked ? "text-amber-500 dark:text-amber-400" : "text-[var(--nav-text-dim)] hover:text-[var(--nav-text)]"}`} title={bookmarked ? "Quitar marcador" : "Añadir marcador"}>
+              <Star size={13} fill={bookmarked ? "currentColor" : "none"} />
+            </button>
+          )}
         </form>
+
         {snap.hasSaved && (
           <button
             onClick={() => void doFillSaved()}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-emerald-400 transition hover:bg-[var(--nav-hover)]"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-emerald-600 transition hover:bg-[var(--nav-hover)] dark:text-emerald-400"
             title={`Contraseña guardada para ${snap.host}: rellenar usuario y contraseña`}
           >
             <KeyRound size={15} />
           </button>
         )}
+        <button
+          onClick={() => {
+            const t = activeTabData;
+            if (t && /^https?:/i.test(t.url) && navigator.share) {
+              navigator.share({ title: t.title || t.url, url: t.url }).catch(() => undefined);
+            }
+          }}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-25"
+          title="Compartir"
+          disabled={!activeTabData || !/^https?:/i.test(activeTabData.url)}
+        >
+          <Share2 size={16} strokeWidth={1.8} />
+        </button>
+        <button onClick={newTab} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]" title="Nueva pestaña (⌘T)">
+          <Plus size={17} strokeWidth={1.9} />
+        </button>
         {/* avatar (perfil): rellena tu correo en la página o abre tu perfil */}
         <button
           onClick={() => (snap.identityEmail ? doLoginFill() : openApp("settings", { payload: { section: "account" } }))}
-          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--nav-accent-deep)] to-[#0b101e] text-[11px] font-bold text-white ring-1 transition hover:brightness-125 ${
+          className={`flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--nav-accent-deep)] to-[#111] text-[10.5px] font-bold text-white ring-1 transition hover:brightness-125 dark:to-[#2a2a2d] ${
             snap.identityEmail && snap.detected ? "ring-[var(--nav-accent)]" : "ring-[var(--nav-border)]"
           }`}
           title={
@@ -1237,19 +1240,19 @@ export default function SafariApp({ win }: AppProps) {
         >
           {(userName || "U").trim().charAt(0).toUpperCase()}
         </button>
-        {/* menú ⋮ estilo Chrome */}
+        {/* menú ⋯ estilo Safari */}
         <div className="relative shrink-0">
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className={`flex h-8 w-8 items-center justify-center rounded-full transition hover:bg-[var(--nav-hover)] ${menuOpen ? "bg-[var(--nav-hover)] text-[var(--nav-text)]" : "text-[var(--nav-text-dim)] hover:text-[var(--nav-text)]"}`}
+            className={`flex h-8 w-8 items-center justify-center rounded-lg transition hover:bg-[var(--nav-hover)] ${menuOpen ? "bg-[var(--nav-hover)] text-[var(--nav-text)]" : "text-[var(--nav-text)]"}`}
             title="Más opciones"
           >
-            <MoreVertical size={16} />
+            <MoreHorizontal size={17} />
           </button>
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-60 rounded-xl border border-[var(--nav-border)] bg-[#111830] p-1.5 shadow-2xl shadow-black/50">
+              <div className="absolute right-0 top-[calc(100%+8px)] z-50 w-60 rounded-xl border border-[var(--nav-border)] bg-[var(--nav-field)] p-1.5 shadow-2xl shadow-black/25">
                 <button
                   className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]"
                   onClick={() => {
@@ -1277,15 +1280,24 @@ export default function SafariApp({ win }: AppProps) {
                 >
                   <DownloadIcon size={14} className="shrink-0 text-[var(--nav-text-dim)]" /> Descargas
                 </button>
+                <button
+                  className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    tabId && navigateTab(tabId, START);
+                  }}
+                >
+                  <Home size={14} className="shrink-0 text-[var(--nav-text-dim)]" /> Página de inicio
+                </button>
                 <div className="mx-2.5 my-1 h-px bg-[var(--nav-border)]" />
                 <button
                   disabled={!canInstallPage}
                   title={
                     !canInstallPage
                       ? activeTabData && parseYouTubeUrl(activeTabData.url)
-                        ? "YouTube ya es una app nativa de axcsOS (está en el Dock)"
+                        ? "YouTube ya es una app nativa de macOS (está en el Dock)"
                         : "Navega a una página para poder instalarla como app"
-                      : "Instalar esta página como app de axcsOS"
+                      : "Instalar esta página como app de macOS"
                   }
                   className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-[12px] text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-40 disabled:hover:bg-transparent"
                   onClick={() => {
@@ -1327,6 +1339,55 @@ export default function SafariApp({ win }: AppProps) {
         </div>
       </div>
 
+      {/* franja de pestañas estilo Safari: rectángulos redondeados
+          compactos sobre una franja más oscura, + para nueva pestaña */}
+      <div className="flex h-[36px] shrink-0 items-center gap-1 border-b border-[var(--nav-border)] bg-[var(--nav-strip)] px-2">
+        <div className="no-scrollbar flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {tabs.map((t, i) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveTab(i)}
+              onDoubleClick={() => patchTab(t.id, { pinned: !t.pinned })}
+              className={`group flex h-[26px] shrink-0 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] transition-colors ${
+                i === activeTab
+                  ? "bg-[var(--nav-tab)] text-[var(--nav-text)] shadow-sm"
+                  : "text-[var(--nav-text-dim)] hover:bg-black/[0.06] hover:text-[var(--nav-text)] dark:hover:bg-white/[0.09]"
+              } ${t.pinned ? "w-10 justify-center" : "max-w-44 min-w-28"}`}
+              title={t.pinned ? `${t.title} (fijada: doble clic para desfijar)` : `${t.title} — doble clic para fijar`}
+            >
+              {t.loading ? (
+                <RotateCw size={11} className="shrink-0 animate-spin text-[var(--nav-accent)]" />
+              ) : t.favicon ? (
+                <img src={t.favicon} alt="" className="h-3.5 w-3.5 shrink-0 rounded-[3px]" onError={(e) => ((e.target as HTMLImageElement).style.visibility = "hidden")} />
+              ) : (
+                <Globe size={11} className="shrink-0 opacity-60" />
+              )}
+              {!t.pinned && <span className="min-w-0 flex-1 truncate text-left">{t.title}</span>}
+              {!t.pinned && (
+                <span
+                  role="button"
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(t.id);
+                  }}
+                  className={`shrink-0 rounded-full p-0.5 transition hover:bg-black/15 dark:hover:bg-white/20 ${i === activeTab ? "opacity-70" : "opacity-0 group-hover:opacity-100"}`}
+                >
+                  <X size={10} />
+                </span>
+              )}
+            </button>
+          ))}
+          <button
+            onClick={newTab}
+            className="flex h-[26px] w-8 shrink-0 items-center justify-center rounded-[8px] text-[var(--nav-text-dim)] transition hover:bg-black/[0.06] hover:text-[var(--nav-text)] dark:hover:bg-white/[0.09]"
+            title="Nueva pestaña (⌘T)"
+          >
+            <Plus size={14} />
+          </button>
+        </div>
+      </div>
+
       {activeTabData?.loading && (
         <div className="h-0.5 shrink-0 overflow-hidden bg-transparent">
           <div className="animate-progress h-full w-1/3 rounded-full bg-[var(--nav-accent)]" />
@@ -1343,14 +1404,14 @@ export default function SafariApp({ win }: AppProps) {
           <button
             onClick={() => openRealWindow("engine")}
             className="shrink-0 rounded-full bg-amber-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm transition hover:opacity-90"
-            title="Ventana real navegada por el motor de axcsOS (misma sesión del sistema): al cerrarla, esta pestaña se recarga para mostrarte la cuenta iniciada"
+            title="Ventana real navegada por el motor de macOS (misma sesión del sistema): al cerrarla, esta pestaña se recarga para mostrarte la cuenta iniciada"
           >
             Ventana real · por el motor
           </button>
           <button
             onClick={() => openRealWindow("direct")}
             className="shrink-0 rounded-full bg-black/5 px-3 py-1 text-[11px] font-medium text-neutral-600 transition hover:bg-black/10 dark:bg-white/10 dark:text-neutral-300 dark:hover:bg-white/20"
-            title="Ventana real con tu conexión (tu IP, sin motor): la sesión quedará en tu navegador, no en axcsOS"
+            title="Ventana real con tu conexión (tu IP, sin motor): la sesión quedará en tu navegador, no en macOS"
           >
             Con mi conexión
           </button>
@@ -1428,7 +1489,7 @@ export default function SafariApp({ win }: AppProps) {
               </button>
             </div>
           )}
-          {/* sin credencial: el correo del perfil (@axcs.os de Mail) */}
+          {/* sin credencial: el correo del perfil (@icloud.com de Mail) */}
           {snap.detected && !(snap.hasSaved && !snap.signupLike) && snap.identityEmail && (
             <div className="flex shrink-0 items-center gap-2 border-b border-[var(--accent-os)]/20 bg-[var(--accent-os)]/[0.08] px-3 py-1.5 text-[11px]">
               <MailIconLucide size={13} className="shrink-0 text-[var(--accent-os)]" />
@@ -1458,7 +1519,7 @@ export default function SafariApp({ win }: AppProps) {
         <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/25 bg-amber-500/[0.08] px-3 py-1.5 text-[11px]">
           <KeyRound size={13} className="shrink-0 text-amber-500" />
           <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-300">
-            ¿Guardar la contraseña de <b className="text-neutral-800 dark:text-neutral-100">{assistant.savePrompt.host}</b> ({assistant.savePrompt.username}) en axcsOS? Se cifra con AES-256 en este dispositivo.
+            ¿Guardar la contraseña de <b className="text-neutral-800 dark:text-neutral-100">{assistant.savePrompt.host}</b> ({assistant.savePrompt.username}) en macOS? Se cifra con AES-256 en este dispositivo.
           </span>
           <button
             onClick={() => void assistant.savePromptSave(assistant.savePrompt!)}
@@ -1515,7 +1576,7 @@ export default function SafariApp({ win }: AppProps) {
               className="os-input mb-3 w-full rounded-lg bg-white/80 px-3 py-2 text-[13px] shadow-sm ring-1 ring-black/5 outline-none focus:ring-2 focus:ring-[var(--accent-os)]/50 dark:bg-neutral-800/80 dark:ring-white/10"
             />
             <p className="mb-3 text-[10.5px] leading-relaxed text-neutral-400">
-              La página se convertirá en una app nativa de axcsOS: ventana propia con el motor de navegación dentro,
+              La página se convertirá en una app nativa de macOS: ventana propia con el motor de navegación dentro,
               accesible desde Launchpad, el Dock y Spotlight.
             </p>
             <div className="flex justify-end gap-2">
@@ -1545,22 +1606,22 @@ export default function SafariApp({ win }: AppProps) {
         </div>
       )}
 
-      {/* paneles laterales: marcadores / historial */}
-      {panel && (
-        <SidePanel
-          kind={panel}
-          bookmarks={bookmarks}
-          history={safariHistory}
-          onOpen={(url) => {
-            tabId && void navigateTab(tabId, url);
-            setPanel(null);
-          }}
-          onRemoveBookmark={removeBookmark}
-          onRemoveHistory={removeHistory}
-          onClearHistory={clearHistory}
-          onClose={() => setPanel(null)}
-        />
-      )}
+      {/* barra lateral Safari (izquierda): marcadores / historial */}
+      <div className="relative flex min-h-0 flex-1">
+        {panel && (
+          <SidePanel
+            kind={panel}
+            bookmarks={bookmarks}
+            history={safariHistory}
+            onOpen={(url) => {
+              tabId && void navigateTab(tabId, url);
+            }}
+            onRemoveBookmark={removeBookmark}
+            onRemoveHistory={removeHistory}
+            onClearHistory={clearHistory}
+            onClose={() => setPanel(null)}
+          />
+        )}
 
       {/* contenido */}
       <div className="relative min-h-0 flex-1">
@@ -1678,6 +1739,7 @@ export default function SafariApp({ win }: AppProps) {
           </div>
         ))}
       </div>
+      </div>
     </div>
   );
 
@@ -1727,14 +1789,14 @@ function StartPage({
   const list = favs.length ? favs : bookmarks.slice(0, 8);
 
   return (
-    <div className="mac-scrollbar h-full overflow-y-auto bg-[radial-gradient(120%_80%_at_50%_0%,#17203d_0%,#0b101e_58%)] px-8 py-12">
+    <div className="mac-scrollbar h-full overflow-y-auto bg-[var(--nav-page)] px-8 py-10">
       <div className="mx-auto flex max-w-xl flex-col items-center">
-        {/* logo del Navegador (la brújula del estudio) */}
-        <img src="icons/safari.png" alt="" draggable={false} className="mb-4 h-16 w-16 rounded-[15px] shadow-lg shadow-black/40 ring-1 ring-white/10" />
-        <p className="mb-7 text-center text-[11px] text-[var(--nav-text-dim)]">Navegación real por el motor Scramjet · dentro de axcsOS</p>
+        {/* logo de Safari (la brújula) */}
+        <img src="icons/safari.png" alt="" draggable={false} className="mb-4 h-16 w-16 rounded-[15px] shadow-lg shadow-black/20 ring-1 ring-black/5 dark:ring-white/10" />
+        <p className="mb-6 text-center text-[11px] text-[var(--nav-text-dim)]">Navegación real por el motor Scramjet · dentro de macOS</p>
 
         <form
-          className="mb-9 flex h-12 w-full items-center gap-3 rounded-full border border-[var(--nav-border)] bg-[var(--nav-field)] px-5 shadow-lg shadow-black/30 transition focus-within:border-[var(--nav-accent)] focus-within:ring-2 focus-within:ring-[var(--nav-accent)]/40"
+          className="mb-8 flex h-[46px] w-full items-center gap-3 rounded-full border border-[var(--nav-border)] bg-[var(--nav-field)] px-5 shadow-sm transition focus-within:border-[var(--nav-accent)] focus-within:ring-2 focus-within:ring-[var(--nav-accent)]/30"
           onSubmit={(e) => {
             e.preventDefault();
             if (q.trim()) onSearch(q.trim());
@@ -1744,19 +1806,19 @@ function StartPage({
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder={`Buscar en la web (${engineLabel})`}
+            placeholder="Buscar o introducir nombre de sitio web"
             className="os-input h-full w-full bg-transparent text-[14px] text-[var(--nav-text)] outline-none placeholder:text-[var(--nav-text-dim)]"
           />
         </form>
 
-        {/* accesos directos estilo Chrome (círculos) */}
+        {/* Favoritos: círculos, como la página de inicio de Safari */}
         <div className="grid w-full grid-cols-4 gap-5">
           {list.map((f) => {
             const key = hostOf(f.url);
             const meta = FAV_LETTER[key] ?? { color: "linear-gradient(135deg,#64748b,#334155)", letter: f.name[0]?.toUpperCase() ?? "•" };
             return (
               <button key={f.id} onClick={() => onOpen(f.url)} className="group flex flex-col items-center gap-2">
-                <div className="flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold text-white shadow-lg shadow-black/40 ring-1 ring-white/10 transition group-hover:scale-105 group-hover:ring-[var(--nav-accent)]" style={{ background: meta.color }}>
+                <div className="flex h-16 w-16 items-center justify-center rounded-full text-2xl font-bold text-white shadow-md shadow-black/15 ring-1 ring-black/10 transition group-hover:scale-105 group-hover:ring-[var(--nav-accent)]" style={{ background: meta.color }}>
                   {meta.letter}
                 </div>
                 <span className="max-w-full truncate text-[11px] text-[var(--nav-text-dim)] group-hover:text-[var(--nav-text)]">{f.name}</span>
@@ -1766,13 +1828,13 @@ function StartPage({
         </div>
 
         {history.length > 0 && (
-          <div className="mt-10 w-full rounded-2xl border border-[var(--nav-border)] bg-white/[0.03] p-4">
+          <div className="mt-10 w-full rounded-2xl border border-[var(--nav-border)] bg-[var(--nav-field)]/60 p-4 shadow-sm">
             <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold text-[var(--nav-text-dim)]">
               <Clock size={12} /> Visitados recientemente
             </div>
             <div className="flex flex-col gap-1">
               {history.slice(0, 5).map((h) => (
-                <button key={h.id} onClick={() => onOpen(h.url)} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/[0.06]">
+                <button key={h.id} onClick={() => onOpen(h.url)} className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-[var(--nav-hover)]">
                   <Globe size={11} className="shrink-0 text-[var(--nav-text-dim)]" />
                   <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--nav-text)]">{h.title || h.url}</span>
                   <span className="shrink-0 text-[10px] text-[var(--nav-text-dim)]">{hostOf(h.url)}</span>
@@ -1790,7 +1852,7 @@ function StartPage({
           </div>
           {engineKind === "own" ? (
             <p>
-              Motor propio del estudio activo (wisp en Render). Si se cae, axcsOS conmuta solo al respaldo público y
+              Motor propio del estudio activo (wisp en Render). Si se cae, macOS conmuta solo al respaldo público y
               vuelve cuando el propio recupera la salud.
             </p>
           ) : engineKind === "demo" ? (
@@ -1858,7 +1920,7 @@ function SearchResultsPage({ query, engine, searxngUrl, onOpen, onFallback }: { 
   }, [query, engine, searxngUrl, onFallback]);
 
   return (
-    <div className="mac-scrollbar h-full overflow-y-auto bg-[#0c1120]">
+    <div className="mac-scrollbar h-full overflow-y-auto bg-[var(--nav-page)]">
       <div className="mx-auto max-w-2xl px-6 py-8">
         <div className="mb-4 flex items-center gap-2 text-[12px] text-neutral-400">
           <Search size={13} />
@@ -1977,31 +2039,39 @@ function SidePanel({
   onClose: () => void;
 }) {
   return (
-    <div className="mac-scrollbar max-h-48 shrink-0 overflow-y-auto border-b border-[var(--nav-border)] bg-[#0d1425] px-3 py-2">
-      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold tracking-wide text-[var(--nav-text-dim)] uppercase">
-        {kind === "bookmarks" ? <BookMarked size={11} /> : <HistoryIcon size={11} />}
-        {kind === "bookmarks" ? "Marcadores" : "Historial"}
+    <div className="mac-scrollbar flex w-64 shrink-0 flex-col overflow-hidden border-r border-[var(--nav-border)] bg-[var(--nav-surface)]">
+      {/* cabecera de la barra lateral estilo Safari */}
+      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-[var(--nav-border)] px-3 text-[12px] font-semibold text-[var(--nav-text)]">
+        {kind === "bookmarks" ? (
+          <>
+            <BookMarked size={13} className="shrink-0 text-[var(--nav-accent)]" /> Marcadores
+          </>
+        ) : (
+          <>
+            <HistoryIcon size={13} className="shrink-0 text-[var(--nav-accent)]" /> Historial
+          </>
+        )}
         <span className="flex-1" />
         {kind === "history" && history.length > 0 && (
           <button onClick={onClearHistory} className="rounded px-1.5 py-0.5 text-[10px] font-medium text-rose-500 transition hover:bg-rose-500/10">
             Borrar todo
           </button>
         )}
-        <button onClick={onClose} className="rounded p-0.5 text-[var(--nav-text-dim)] transition hover:bg-[var(--nav-hover)] hover:text-[var(--nav-text)]">
-          <X size={11} />
+        <button onClick={onClose} className="rounded p-0.5 text-[var(--nav-text-dim)] transition hover:bg-[var(--nav-hover)] hover:text-[var(--nav-text)]" title="Ocultar barra lateral">
+          <X size={12} />
         </button>
       </div>
-      <div className="flex flex-col">
+      <div className="mac-scrollbar flex flex-col overflow-y-auto p-1.5">
         {kind === "bookmarks" &&
           (bookmarks.length === 0 ? (
-            <span className="px-2 py-1.5 text-[11px] text-[var(--nav-text-dim)]">Sin marcadores todavía. Pulsa la estrella para guardar la página actual.</span>
+            <span className="px-2 py-1.5 text-[11px] leading-relaxed text-[var(--nav-text-dim)]">Sin marcadores todavía. Pulsa la estrella para guardar la página actual.</span>
           ) : (
             bookmarks.map((b) => (
-              <div key={b.id} className="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/[0.06]">
-                <button onClick={() => onOpen(b.url)} className="min-w-0 flex-1 truncate text-left text-[11px] text-[var(--nav-text)]">
+              <div key={b.id} className="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-[var(--nav-hover)]">
+                <button onClick={() => onOpen(b.url)} className="min-w-0 flex-1 truncate text-left text-[11.5px] text-[var(--nav-text)]">
                   {b.name} <span className="text-[var(--nav-text-dim)]">· {hostOf(b.url)}</span>
                 </button>
-                <button onClick={() => onRemoveBookmark(b.id)} className="shrink-0 rounded p-0.5 text-[var(--nav-text-dim)] opacity-0 transition hover:text-rose-400 group-hover:opacity-100" title="Eliminar">
+                <button onClick={() => onRemoveBookmark(b.id)} className="shrink-0 rounded p-0.5 text-[var(--nav-text-dim)] opacity-0 transition hover:text-rose-500 group-hover:opacity-100" title="Eliminar">
                   <X size={10} />
                 </button>
               </div>
@@ -2009,15 +2079,15 @@ function SidePanel({
           ))}
         {kind === "history" &&
           (history.length === 0 ? (
-            <span className="px-2 py-1.5 text-[11px] text-[var(--nav-text-dim)]">Sin historial. Se guarda según Ajustes → Navegador.</span>
+            <span className="px-2 py-1.5 text-[11px] leading-relaxed text-[var(--nav-text-dim)]">Sin historial. Se guarda según Ajustes → Navegador.</span>
           ) : (
             history.map((h) => (
-              <div key={h.id} className="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-white/[0.06]">
-                <button onClick={() => onOpen(h.url)} className="min-w-0 flex-1 truncate text-left text-[11px] text-[var(--nav-text)]">
-                  {h.title || h.url} <span className="text-[var(--nav-text-dim)]">· {hostOf(h.url)}</span>
+              <div key={h.id} className="group flex items-center gap-2 rounded-lg px-2 py-1 hover:bg-[var(--nav-hover)]">
+                <button onClick={() => onOpen(h.url)} className="min-w-0 flex-1 truncate text-left text-[11.5px] text-[var(--nav-text)]">
+                  {h.title || h.url}
                 </button>
                 <span className="shrink-0 text-[9px] text-[var(--nav-text-dim)]">{new Date(h.time).toLocaleDateString()}</span>
-                <button onClick={() => onRemoveHistory(h.id)} className="shrink-0 rounded p-0.5 text-[var(--nav-text-dim)] opacity-0 transition hover:text-rose-400 group-hover:opacity-100" title="Eliminar entrada">
+                <button onClick={() => onRemoveHistory(h.id)} className="shrink-0 rounded p-0.5 text-[var(--nav-text-dim)] opacity-0 transition hover:text-rose-500 group-hover:opacity-100" title="Eliminar entrada">
                   <X size={10} />
                 </button>
               </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useOS } from "../store";
-import { PearLogo } from "../icons";
+import { AppleLogo } from "../icons";
 
 /* Arranque del sistema: logo + barra de progreso.
    Sin cuentas no hay sesión que restaurar: al terminar va directo
@@ -27,7 +27,7 @@ export default function BootScreen() {
 
   return (
     <div className="fixed inset-0 z-[7000] flex flex-col items-center justify-center gap-8 bg-black">
-      <PearLogo className="h-[120px] w-[66px] text-white" />
+      <AppleLogo className="h-[110px] w-[90px] text-white" />
       <div className="h-[5px] w-[190px] overflow-hidden rounded-full bg-white/20">
         <div
           className="h-full rounded-full bg-white transition-[width] duration-100 ease-linear"

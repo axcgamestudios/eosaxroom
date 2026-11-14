@@ -1,26 +1,26 @@
 "use client";
 
 /* ============================================================
-   Mail de axcsOS — correo real entre usuarios del sistema
+   Mail de macOS — correo real entre usuarios del sistema
    ------------------------------------------------------------
-   * Dirección propia del usuario: <nombre>@axcs.os (se crea una
+   * Dirección propia del usuario: <nombre>@icloud.com (se crea una
      vez en la app Mail y sirve para identificarse al iniciar
      sesión en páginas web — Safari la rellena por ti).
    * Entrega REAL por los brokers MQTT públicos sobre WebSocket
      (emqx → hivemq → mosquitto), QoS 1 con deduplicación por id
      de carta.
    * Persistencia en localStorage (recortada por cuota).
-   * Los buzones solo existen dentro de axcsOS: las webs externas
+   * Los buzones solo existen dentro de macOS: las webs externas
      no pueden enviar aquí códigos de verificación (para eso está
      el correo real del usuario). No se finge lo contrario.
    ============================================================ */
 
-export const MAIL_DOMAIN = "axcs.os";
+export const MAIL_DOMAIN = "icloud.com";
 
 export type MailConnState = "offline" | "connecting" | "online" | "error";
 
 export interface MailAccount {
-  address: string; // nombre@axcs.os
+  address: string; // nombre@icloud.com
   createdAt: number;
 }
 
@@ -110,15 +110,15 @@ export function createMailAccount(localPart: string): MailAccount {
     {
       id: uid("w1"),
       from: `equipo@${MAIL_DOMAIN}`,
-      fromName: "Equipo axcsOS",
+      fromName: "Equipo macOS",
       to: acc.address,
-      subject: "Tu correo de axcsOS está listo",
+      subject: "Tu correo de macOS está listo",
       body:
         `Hola:\n\nTu dirección ${acc.address} ya funciona. La usas para dos cosas:\n\n` +
         `1. Iniciar sesión en páginas web: cuando una web pida un correo (dentro de Safari), Safari te ofrecerá rellenarlo con esta dirección automáticamente.\n\n` +
-        `2. Escribir a otras personas con axcsOS: escribe su dirección nombre@${MAIL_DOMAIN} en "Redactar" y la carta llega a su Mail en segundos.\n\n` +
-        `Importante y honesto: este buzón existe dentro de axcsOS. Las webs externas NO pueden enviarte aquí códigos de verificación; para eso usa tu correo real de siempre.\n\n` +
-        `— El equipo de axcsOS 🍐`,
+        `2. Escribir a otras personas con macOS: escribe su dirección nombre@${MAIL_DOMAIN} en "Redactar" y la carta llega a su Mail en segundos.\n\n` +
+        `Importante y honesto: este buzón existe dentro de macOS. Las webs externas NO pueden enviarte aquí códigos de verificación; para eso usa tu correo real de siempre.\n\n` +
+        `— El equipo de macOS 🍐`,
       ts: now,
       mine: false,
       read: false,
@@ -126,7 +126,7 @@ export function createMailAccount(localPart: string): MailAccount {
     {
       id: uid("w2"),
       from: `appstore@${MAIL_DOMAIN}`,
-      fromName: "App Store de axcsOS",
+      fromName: "App Store de macOS",
       to: acc.address,
       subject: "Juegos listos para instalar",
       body:
@@ -335,7 +335,7 @@ class MailService {
     this.emit({ type: "letter", letter });
   }
 
-  /** Envía una carta REAL al buzón de otra dirección axcsOS. */
+  /** Envía una carta REAL al buzón de otra dirección macOS. */
   sendLetter(to: string, subject: string, body: string): { ok: boolean; error?: string } {
     if (!this.account) return { ok: false, error: "Primero crea tu dirección en Mail" };
     const dest = to.trim().toLowerCase();
@@ -400,7 +400,7 @@ class MailService {
 
 let singleton: MailService | null = null;
 
-/** Singleton del servicio de correo de axcsOS. */
+/** Singleton del servicio de correo de macOS. */
 export function getMail(): MailService {
   if (!singleton) singleton = new MailService();
   return singleton;

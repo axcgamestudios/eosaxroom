@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useOS } from "../store";
 import { getAppDef } from "../registry";
-import { LaunchpadIcon, TrashIcon } from "../icons";
+import { LaunchpadLogoIcon as LaunchpadIcon, TrashIcon } from "../icons";
 import { useWebApps } from "../services/webapps";
+import { installedNativeIds, onNativeAppsChanged } from "../services/nativeapps";
 
 const DOCK_APPS = [
   "finder",
@@ -34,6 +35,7 @@ export default function Dock() {
   const [, setTick] = useState(0);
   const [centers, setCenters] = useState<Record<string, number>>({});
   const refs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const dockRef = useRef<HTMLDivElement>(null);
 
   const size = settings.dockSize;
 
@@ -84,6 +86,14 @@ export default function Dock() {
   const webApps = useWebApps();
   const webAppIds = useMemo(() => webApps.map((m) => `webapp:${m.id}`), [webApps]);
 
+  // apps nativas instaladas desde la App Store (Unity y compañía)
+  const [nativeIds, setNativeIds] = useState<string[]>([]);
+  useEffect(() => {
+    const read = () => setNativeIds(installedNativeIds());
+    read();
+    return onNativeAppsChanged(read);
+  }, []);
+
   const activate = (appId: string) => {
     if (appId === "launchpad") {
       setLaunchpad(true);
@@ -114,7 +124,7 @@ export default function Dock() {
     return s;
   };
 
-  const items = [...DOCK_APPS, ...webAppIds, "trash"];
+  const items = [...DOCK_APPS, ...nativeIds, ...webAppIds, "trash"];
 
   return (
     <div
@@ -126,8 +136,18 @@ export default function Dock() {
       }}
     >
       <div
-        onPointerMove={(e) => setMx(e.clientX)}
-        className={`lg-specular flex items-end gap-[6px] rounded-[22px] px-[7px] pb-[7px] pt-[7px] ${
+        ref={dockRef}
+        onPointerMove={(e) => {
+          setMx(e.clientX);
+          // specular líquido: la marca de luz sigue al puntero
+          const el = dockRef.current;
+          if (el) {
+            const r = el.getBoundingClientRect();
+            el.style.setProperty("--lgx", `${e.clientX - r.left}px`);
+            el.style.setProperty("--lgy", `${e.clientY - r.top}px`);
+          }
+        }}
+        className={`lg-rim lg-pointer flex items-end gap-[6px] rounded-[22px] px-[7px] pb-[7px] pt-[7px] ${
           settings.reduceTransparency
             ? "bg-[#e9e9ec]/95 shadow-xl dark:bg-[#232326]/95"
             : "glass-dock"

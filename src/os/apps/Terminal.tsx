@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AppProps } from "../types";
 import { useOS } from "../store";
 import { APPS } from "../registry";
-import { PearLogo } from "../icons";
+import { AppleLogo } from "../icons";
 
 interface Line {
   kind: "input" | "output";
@@ -33,8 +33,8 @@ const BANNER = `                    'c.
              oMMMMMMMMMMMMMM
                .loooooool.
 
-  usuario@axcs — axcsOS 1.0
-  Chip Z1 Silicon · 16 GB · Liquid Glass`;
+  usuario@MacBook — macOS 27.0
+  Chip Apple M4 · 16 GB · Liquid Glass`;
 
 export default function TerminalApp({ win }: AppProps) {
   const [lines, setLines] = useState<Line[]>([
@@ -159,7 +159,7 @@ export default function TerminalApp({ win }: AppProps) {
         ))}
         {/* live input line */}
         <div className="flex items-center gap-1.5 text-[12px]">
-          <PearLogo className="h-3.5 w-2 text-neutral-400" />
+          <AppleLogo className="h-3.5 w-[11px] text-neutral-400" />
           <span className="text-[#5df58a]">usuario@macbook-web</span>
           <span className="text-neutral-400">~ %</span>
           <input

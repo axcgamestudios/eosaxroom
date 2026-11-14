@@ -25,9 +25,9 @@ const DOCK_RESERVED = 96;
 const SEED_NOTES: Note[] = [
   {
     id: "note-welcome",
-    title: "Bienvenido a axcsOS",
+    title: "Bienvenido a macOS",
     content:
-      "Bienvenido a axcsOS 1.0 “Liquid Glass”.\n\nCosas que puedes probar:\n• ⌘ + Espacio abre Spotlight\n• ⌘ + Tab cambia de aplicación\n• Haz clic derecho en el escritorio\n• Abre la app AXCGAMES desde el Dock\n\nTodo se guarda automáticamente en este navegador.",
+      "Bienvenido a macOS 27.0 “Liquid Glass”.\n\nCosas que puedes probar:\n• ⌘ + Espacio abre Spotlight\n• ⌘ + Tab cambia de aplicación\n• Haz clic derecho en el escritorio\n• Abre la app AXCGAMES desde el Dock\n\nTodo se guarda automáticamente en este navegador.",
     updatedAt: Date.now(),
     folder: "Notas",
   },
@@ -233,7 +233,7 @@ export const useOS = create<OsStore>()(
         void import("./services/websession").then((m) => m.bindEngineSessionToProfile("local")).catch(() => undefined);
         const who = account?.username ?? get().settings.userName;
         setTimeout(() => {
-          get().notify("finder", `Hola, ${who}`, "Sesión iniciada en axcsOS.");
+          get().notify("finder", `Hola, ${who}`, "Sesión iniciada en macOS.");
         }, 900);
       },
       logout: () => {
@@ -545,7 +545,7 @@ export const useOS = create<OsStore>()(
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<OsStore>;
         // Migración ÚNICA del fondo predeterminado (t18): quien tenía el default
-        // anterior (goldengate) estrena el nuevo (AXC Azul Marino); quien eligió
+        // anterior (goldengate) estrena el nuevo (Azul Marino); quien eligió
         // otro fondo conserva su elección. El flag evita repetir la migración si
         // el usuario vuelve a elegir el fondo antiguo a propósito.
         let wallpaper = p.settings?.wallpaper ?? current.settings.wallpaper;

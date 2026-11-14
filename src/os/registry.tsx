@@ -3,7 +3,6 @@
 import type { AppDef, MenuDef, WebAppManifest } from "./types";
 import {
   AxcGamesIcon,
-  CalculatorIcon,
   DocIcon,
   FinderIcon,
   ImageDocIcon,
@@ -17,6 +16,11 @@ import {
   NotesLogoIcon,
   CalculatorLogoIcon,
   SettingsLogoIcon,
+  MailLogoIcon,
+  AppStoreLogoIcon,
+  TerminalLogoIcon,
+  UnityLogoIcon,
+  UnityPlayerLogoIcon,
   YouTubeIcon,
   MailIcon,
   AppStoreIcon,
@@ -37,8 +41,11 @@ import YouTubeApp from "./apps/YouTube";
 import MailApp from "./apps/Mail";
 import AppStoreApp from "./apps/AppStore";
 import ScreenMirrorApp from "./apps/ScreenMirror";
+import UnityApp from "./apps/Unity";
+import UnityPlayerApp from "./apps/UnityPlayer";
 import WebAppFrame from "./apps/WebAppFrame";
 import { findWebAppById, listWebApps, tileGradientFor, WEBAPP_PREFIX } from "./services/webapps";
+import { installedNativeIds } from "./services/nativeapps";
 
 const fileMenu: MenuDef = {
   title: "Archivo",
@@ -74,7 +81,7 @@ const windowMenu: MenuDef = {
 
 const helpMenu: MenuDef = {
   title: "Ayuda",
-  items: [{ label: "Ayuda de axcsOS", action: "openApp", actionArg: "notes" }],
+  items: [{ label: "Ayuda de macOS", action: "openApp", actionArg: "notes" }],
 };
 
 export const APPS: AppDef[] = [
@@ -116,7 +123,7 @@ export const APPS: AppDef[] = [
   },
   {
     id: "safari",
-    name: "Navegador",
+    name: "Safari",
     icon: SafariLogoIcon,
     component: SafariApp,
     defaultSize: { w: 1020, h: 660 },
@@ -136,7 +143,7 @@ export const APPS: AppDef[] = [
   {
     id: "mail",
     name: "Mail",
-    icon: MailIcon,
+    icon: MailLogoIcon,
     component: MailApp,
     defaultSize: { w: 900, h: 580 },
     minSize: { w: 680, h: 400 },
@@ -152,7 +159,7 @@ export const APPS: AppDef[] = [
   {
     id: "appstore",
     name: "App Store",
-    icon: AppStoreIcon,
+    icon: AppStoreLogoIcon,
     component: AppStoreApp,
     defaultSize: { w: 940, h: 620 },
     minSize: { w: 640, h: 420 },
@@ -219,7 +226,7 @@ export const APPS: AppDef[] = [
   {
     id: "terminal",
     name: "Terminal",
-    icon: TerminalIcon,
+    icon: TerminalLogoIcon,
     component: TerminalApp,
     defaultSize: { w: 620, h: 420 },
     minSize: { w: 380, h: 240 },
@@ -234,7 +241,7 @@ export const APPS: AppDef[] = [
   },
   {
     id: "settings",
-    name: "Ajustes del Sistema",
+    name: "Configuración del Sistema",
     icon: SettingsLogoIcon,
     component: SettingsApp,
     defaultSize: { w: 760, h: 540 },
@@ -268,7 +275,7 @@ export const APPS: AppDef[] = [
   },
   {
     id: "preview",
-    name: "Previsualización",
+    name: "Vista Previa",
     icon: ImageDocIcon,
     component: PreviewApp,
     defaultSize: { w: 700, h: 520 },
@@ -279,8 +286,39 @@ export const APPS: AppDef[] = [
     menus: [fileMenu, editMenu, windowMenu, helpMenu],
   },
   {
+    id: "unity",
+    name: "Unity",
+    icon: UnityLogoIcon,
+    component: UnityApp,
+    defaultSize: { w: 1180, h: 720 },
+    minSize: { w: 720, h: 460 },
+    singleInstance: true,
+    showInDock: false, // aparece al instalarse desde la App Store
+    showInLaunchpad: false,
+    menus: [
+      fileMenu,
+      editMenu,
+      { title: "GameObject", items: [{ label: "Crear cubo" }, { label: "Crear esfera" }, { label: "Crear luz" }] },
+      { title: "Component", items: [{ label: "Añadir Rigidbody" }, { label: "Añadir Collider" }] },
+      windowMenu,
+      helpMenu,
+    ],
+  },
+  {
+    id: "unityplayer",
+    name: "Unity Player",
+    icon: UnityPlayerLogoIcon,
+    component: UnityPlayerApp,
+    defaultSize: { w: 960, h: 620 },
+    minSize: { w: 520, h: 380 },
+    singleInstance: true,
+    showInDock: false, // se instala junto a Unity
+    showInLaunchpad: false,
+    menus: [fileMenu, editMenu, windowMenu, helpMenu],
+  },
+  {
     id: "about",
-    name: "Acerca de axcsOS",
+    name: "Acerca de Este Mac",
     icon: FinderIcon,
     component: AboutApp,
     defaultSize: { w: 300, h: 430 },
@@ -360,10 +398,14 @@ export function webAppDef(m: WebAppManifest): AppDef {
   };
 }
 
-/** Todas las apps del sistema: nativas + web instaladas (para Launchpad/Spotlight/Dock). */
+/** Todas las apps del sistema: nativas + nativas instaladas desde la App Store + web instaladas. */
 export function allApps(): AppDef[] {
   const web = listWebApps().map(webAppDef);
-  return [...APPS, ...web];
+  const natives = installedNativeIds()
+    .map((id) => APPS.find((a) => a.id === id))
+    .filter((a): a is AppDef => !!a);
+  const installedSet = new Set(natives.map((a) => a.id));
+  return [...APPS.filter((a) => a.showInLaunchpad !== false || installedSet.has(a.id)), ...web];
 }
 
 export function getAppDef(id: string): AppDef | undefined {

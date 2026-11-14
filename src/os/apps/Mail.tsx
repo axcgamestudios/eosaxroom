@@ -33,7 +33,7 @@ import {
 const NO_LETTERS: MailLetter[] = [];
 
 /* ============================================================
-   Mail de axcsOS — bandeja real entre usuarios del sistema
+   Mail de macOS — bandeja real entre usuarios del sistema
    ============================================================ */
 
 export default function MailApp(_props: AppProps) {
@@ -174,7 +174,7 @@ export default function MailApp(_props: AppProps) {
                   Sin cartas por ahora.
                   <br />
                   Tu dirección <b className="text-neutral-500 dark:text-neutral-300">{address}</b> ya puede recibir
-                  de otros usuarios de axcsOS.
+                  de otros usuarios de macOS.
                 </>
               ) : (
                 "Nada enviado todavía."
@@ -306,10 +306,10 @@ function MailOnboarding({ username, onDone }: { username: string; onDone: (addr:
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-sky-400 to-blue-600 shadow-lg">
             <MailIconLucide size={26} className="text-white" />
           </div>
-          <h2 className="text-[19px] font-semibold">Tu correo de axcsOS</h2>
+          <h2 className="text-[19px] font-semibold">Tu correo de macOS</h2>
           <p className="mt-1.5 text-[12px] leading-relaxed text-neutral-500 dark:text-neutral-400">
             Elige tu dirección: servirá para que <b>Safari inicie sesión por ti</b> en las páginas que pidan un
-            correo, y para escribir a otros usuarios de axcsOS.
+            correo, y para escribir a otros usuarios de macOS.
           </p>
 
           <div className="mt-5 flex items-center gap-2 rounded-xl bg-white px-3 py-2.5 shadow-sm ring-1 ring-black/5 focus-within:ring-2 focus-within:ring-[var(--accent-os)]/50 dark:bg-neutral-800 dark:ring-white/10">
@@ -342,7 +342,7 @@ function MailOnboarding({ username, onDone }: { username: string; onDone: (addr:
             Crear mi correo
           </button>
           <p className="mt-3 text-[10.5px] leading-relaxed text-neutral-400">
-            Honesto: este buzón vive dentro de axcsOS (entrega real entre usuarios). Las webs externas no pueden
+            Honesto: este buzón vive dentro de macOS (entrega real entre usuarios). Las webs externas no pueden
             enviarte aquí códigos de verificación; para eso usa tu correo real de siempre.
           </p>
         </div>

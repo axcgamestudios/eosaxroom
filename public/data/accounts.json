@@ -1,5 +1,5 @@
 {
-  "_note": "Cuentas de axcsOS gestionadas por el panel de administrador. Las contraseñas se guardan como PBKDF2-SHA256 (100000 iteraciones, sal aleatoria por cuenta) y nunca en texto plano.",
+  "_note": "Cuentas de macOS gestionadas por el panel de administrador. Las contraseñas se guardan como PBKDF2-SHA256 (100000 iteraciones, sal aleatoria por cuenta) y nunca en texto plano.",
   "version": 1,
   "accounts": [
     {

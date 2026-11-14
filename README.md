@@ -1,7 +1,7 @@
-# axcsOS 🍐 — Sistema operativo web con navegador integrado real
+# macOS 🍐 — Sistema operativo web con navegador integrado real
 
-axcsOS es un escritorio web estilo macOS "Liquid Glass" que corre **100% en el
-navegador**, con un navegador propio (**Safari axcsOS**) que carga **sitios web
+macOS es un escritorio web estilo macOS "Liquid Glass" que corre **100% en el
+navegador**, con un navegador propio (**Safari macOS**) que carga **sitios web
 reales** dentro de sus ventanas mediante el motor **Scramjet**.
 
 > **Demo:** https://axcgamestudios.github.io/eosaxroom/
@@ -20,7 +20,7 @@ reales** dentro de sus ventanas mediante el motor **Scramjet**.
 ## 🧭 El navegador: cómo funciona de verdad
 
 ```
-┌────────────────────────── axcsOS (estático, GitHub Pages) ──────────────────────────┐
+┌────────────────────────── macOS (estático, GitHub Pages) ──────────────────────────┐
 │  Safari (UI) ── pestañas ──▶ <iframe> mismo origen                                  │
 │        │                                                                            │
 │        ▼                                                                            │

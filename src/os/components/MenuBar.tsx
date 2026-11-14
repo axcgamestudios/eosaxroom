@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { BatteryFull, Search, Wifi, WifiOff } from "lucide-react";
 import { useActiveAppId, useOS } from "../store";
 import { getAppDef } from "../registry";
-import { PearLogo } from "../icons";
+import { AppleLogo } from "../icons";
 import type { MenuItem } from "../types";
 
 function MenuDropdown({
@@ -118,6 +118,7 @@ function MenuButton({
 export default function MenuBar() {
   const [open, setOpen] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const barRef = useRef<HTMLDivElement>(null);
   const activeAppId = useActiveAppId();
   const def = getAppDef(activeAppId);
   const os = useOS();
@@ -147,7 +148,7 @@ export default function MenuBar() {
   };
 
   const appleItems: MenuItem[] = [
-    { label: "Acerca de axcsOS", action: "about" },
+    { label: "Acerca de macOS", action: "about" },
     { separator: true },
     { label: "Ajustes del Sistema…", action: "settings" },
     { label: "App Store…", action: "openApp", actionArg: "notes" },
@@ -181,7 +182,16 @@ export default function MenuBar() {
 
   return (
     <div
-      className={`os-no-select fixed inset-x-0 top-0 z-[4400] flex h-[30px] items-center gap-0.5 px-2 text-neutral-800 dark:text-neutral-100 ${
+      ref={barRef}
+      onPointerMove={(e) => {
+        const el = barRef.current;
+        if (el) {
+          const r = el.getBoundingClientRect();
+          el.style.setProperty("--lgx", `${e.clientX - r.left}px`);
+          el.style.setProperty("--lgy", `${e.clientY - r.top}px`);
+        }
+      }}
+      className={`os-no-select lg-rim lg-pointer fixed inset-x-0 top-0 z-[4400] flex h-[30px] items-center gap-0.5 px-2 text-neutral-800 dark:text-neutral-100 ${
         os.settings.reduceTransparency
           ? "bg-[#eeeef0]/95 dark:bg-[#1a1a1c]/95"
           : "glass-chrome dark:glass-chrome-dark"
@@ -189,7 +199,7 @@ export default function MenuBar() {
     >
       {/* Apple menu */}
       <MenuButton id="apple" open={open} onOpen={setOpen} onHover={hoverKey} items={menuFor("apple")} onAction={runAction}>
-        <PearLogo className="h-[16px] w-[9px]" />
+        <AppleLogo className="h-[15px] w-[13px]" />
       </MenuButton>
 
       {/* App name menu */}

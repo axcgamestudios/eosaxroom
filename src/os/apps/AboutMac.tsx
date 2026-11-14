@@ -1,7 +1,7 @@
 "use client";
 
 import type { AppProps } from "../types";
-import { PearLogo } from "../icons";
+import { AppleLogo } from "../icons";
 import { useOS } from "../store";
 
 export default function AboutApp(_props: AppProps) {
@@ -27,16 +27,16 @@ export default function AboutApp(_props: AppProps) {
           <path d="M20 62h80c3 0 4 2 5 5H15c1-3 2-5 5-5z" fill="url(#mb-a)" />
           <rect x="50" y="63.4" width="20" height="1.8" rx="0.9" fill="#8b929c" />
           <circle cx="60" cy="34" r="6" fill="rgba(255,255,255,0.92)" />
-          <g transform="translate(56.8 31) scale(0.0058)" style={{ color: "#334155" }}>
-            <PearLogo className="h-[560px] w-[310px]" />
+          <g transform="translate(55.4 28.4) scale(0.02)" style={{ color: "#334155" }}>
+            <AppleLogo className="h-[560px] w-[460px]" />
           </g>
         </svg>
       </div>
-      <h2 className="text-[19px] font-semibold text-neutral-800 dark:text-neutral-100">axcsOS</h2>
+      <h2 className="text-[19px] font-semibold text-neutral-800 dark:text-neutral-100">macOS</h2>
       <p className="text-[11px] text-neutral-400">Versión 27.0 (Liquid Glass)</p>
       <div className="mt-3 w-full space-y-[3px] text-[11.5px]">
         {[
-          ["Chip", "Z1 Silicon"],
+          ["Chip", "Apple M4"],
           ["Memoria", "16 GB"],
           ["Núcleos", "8 CPU · 10 GPU"],
           ["Serial", "Z1WEB27X0001"],

@@ -129,7 +129,7 @@ export function LoginScreen({ mode }: { mode: "login" | "lock" }) {
 
         <div className="absolute bottom-7 flex flex-col items-center gap-1 text-white/60">
           <p className="text-[11px]">Sin cuentas: entra escribiendo cualquier cosa</p>
-          <p className="text-[11px] font-medium text-white/45">axcsOS 1.0 · Liquid Glass</p>
+          <p className="text-[11px] font-medium text-white/45">macOS 27.0 · Liquid Glass</p>
         </div>
       </div>
     </motion.div>

@@ -1,7 +1,7 @@
 "use client";
 
 /* ============================================================
-   Sistema de archivos de axcsOS
+   Sistema de archivos de macOS
    ------------------------------------------------------------
    Árbol REAL compartido: el Escritorio, el Finder y TextEdit
    leen y escriben el mismo árbol (localStorage + suscripción
@@ -28,7 +28,7 @@ const LS_KEY = "axcsos-fs";
 const listeners = new Set<() => void>();
 let cache: FsNode | null = null;
 
-const TXT_LEEME = `Bienvenido a axcsOS 1.0 "Liquid Glass".
+const TXT_LEEME = `Bienvenido a macOS 27.0 "Liquid Glass".
 
 Para empezar:
 • AXCGAMES está en el Dock — 21+ juegos gratis
@@ -51,7 +51,7 @@ const TXT_APUNTES = `Apuntes — Historia de la informática
 1984  Macintosh original
 2001  Mac OS X 10.0 Cheetah
 2025  macOS 26 Tahoe (Liquid Glass)
-2026  axcsOS 1.0 — esta demo web 🍐`;
+2026  macOS 27.0 — esta demo web 🍐`;
 
 const TXT_PRESUPUESTO = `Ordenador nuevo: 2.199 €
 Café: 12 €

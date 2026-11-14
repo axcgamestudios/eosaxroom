@@ -20,7 +20,7 @@ import {
 } from "../services/yt";
 
 /* ============================================================
-   YouTube — cliente 100% nativo de axcsOS (sin Scramjet)
+   YouTube — cliente 100% nativo de macOS (sin Scramjet)
    Home / búsqueda / watch / comentarios / canales / historial.
    Reproductor propio <video> o embebido oficial si las fuentes
    libres están bloqueadas. Nunca pide iniciar sesión.
@@ -222,7 +222,7 @@ function Player({ w, onEnd }: { w: YtWatch; onEnd?: () => void }) {
               {s.quality}
             </button>
           ))}
-          <span className="ml-auto text-[10px] text-neutral-600">reproductor nativo axcsOS · sin login</span>
+          <span className="ml-auto text-[10px] text-neutral-600">reproductor nativo macOS · sin login</span>
         </div>
       )}
     </div>
@@ -544,7 +544,7 @@ export default function YouTubeApp({ initialView, embedded = false, onNavigate, 
       <div className="mt-3 border-t border-white/8 pt-3">
         <p className="px-2.5 pb-1.5 text-[9.5px] font-semibold uppercase tracking-wider text-neutral-600">Acerca de</p>
         <p className="px-2.5 text-[10px] leading-relaxed text-neutral-600">
-          Cliente nativo de axcsOS. Funciona sin cuenta, sin Scramjet y sin iniciar sesión. Vídeo vía fuentes libres o
+          Cliente nativo de macOS. Funciona sin cuenta, sin Scramjet y sin iniciar sesión. Vídeo vía fuentes libres o
           reproductor oficial embebido.
         </p>
       </div>
@@ -609,7 +609,7 @@ export default function YouTubeApp({ initialView, embedded = false, onNavigate, 
             )}
           </div>
           {histItems.length === 0 ? (
-            <p className="py-14 text-center text-[12px] text-neutral-500">Aún no has visto ningún vídeo en axcsOS.</p>
+            <p className="py-14 text-center text-[12px] text-neutral-500">Aún no has visto ningún vídeo en macOS.</p>
           ) : (
             <div className="space-y-2.5">{histItems.map((v) => <VideoRow key={v.id} v={v} onOpen={openVideo} />)}</div>
           )}

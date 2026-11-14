@@ -1,11 +1,11 @@
 "use client";
 
 /* ============================================================
-   Motor de autocompletado e inicio de sesión de axcsOS
+   Motor de autocompletado e inicio de sesión de macOS
    ------------------------------------------------------------
    Detecta formularios de acceso en las páginas cargadas dentro
    del navegador (las del motor son MISMO ORIGEN: su DOM es
-   legible), rellena el correo @axcs.os del perfil y
+   legible), rellena el correo @icloud.com del perfil y
    las contraseñas guardadas en la bóveda (vault.ts, AES-256-GCM),
    captura credenciales nuevas al enviar el formulario y propone
    guardarlas. En páginas cross-origin (modo directo externo) el
@@ -159,8 +159,8 @@ export interface IdentityEmail {
 }
 
 /**
- * El correo con el que axcsOS inicia sesión en la web:
- * la dirección @axcs.os de Mail (si la has creado).
+ * El correo con el que macOS inicia sesión en la web:
+ * la dirección @icloud.com de Mail (si la has creado).
  */
 export function identityEmail(): IdentityEmail | null {
   const m = mailAddress();
@@ -185,7 +185,7 @@ export interface AutofillSnapshot {
   /** credencial guardada para este dominio */
   hasSaved: boolean;
   savedUsername: string | null;
-  /** correo del perfil (@axcs.os de Mail) */
+  /** correo del perfil (@icloud.com de Mail) */
   identityEmail: string | null;
   /** el usuario marcó «nunca guardar» aquí */
   never: boolean;
@@ -340,7 +340,7 @@ export function useAutofillAssistant(ctx: React.RefObject<AutofillCtx>) {
 
   /* ---------- acciones ---------- */
 
-  /** Rellena el correo del perfil (@axcs.os) en la página. true si rellenó. */
+  /** Rellena el correo del perfil (@icloud.com) en la página. true si rellenó. */
   const fillIdentityEmail = useCallback(
     (doc: Document | null): boolean => {
       const id = identityEmail();

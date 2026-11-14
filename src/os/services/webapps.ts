@@ -1,7 +1,7 @@
 "use client";
 
 /* ============================================================
-   Apps web de axcsOS — páginas instaladas como apps nativas
+   Apps web de macOS — páginas instaladas como apps nativas
    ------------------------------------------------------------
    * Registro vivo de apps instaladas (localStorage + suscripción)
      que Dock, Launchpad, Spotlight y la App Store consumen.
@@ -88,7 +88,7 @@ export interface InstallResult {
   manifest?: WebAppManifest;
 }
 
-/** Instala (de verdad) una página como app de axcsOS. */
+/** Instala (de verdad) una página como app de macOS. */
 export function installWebApp(input: { url: string; name?: string }): InstallResult {
   const url = input.url.trim();
   if (!/^https?:\/\//i.test(url)) return { ok: false };
@@ -159,14 +159,66 @@ export interface StoreApp {
   developer: string;
   category: string;
   description: string;
-  /** app nativa de axcsOS (no se instala: ya viene incluida) */
+  /** app nativa de macOS (no se instala: ya viene incluida) */
   nativeAppId?: string;
+  /** ids de apps nativas del sistema que la App Store instala al pulsar Obtener */
+  nativeInstall?: string[];
   /** url de portada para la ficha destacada */
   hero?: boolean;
+  /** tamaño aprox mostrado al instalar (solo nativas) */
+  sizeMb?: number;
 }
 
-/** Catálogo curado de la App Store de axcsOS. */
+/** Catálogo curado de la App Store de macOS. */
 export const STORE_CATALOG: StoreApp[] = [
+  {
+    sid: "unity",
+    name: "Unity",
+    url: "",
+    developer: "Unity Technologies (clon web)",
+    category: "Desarrollo",
+    description:
+      "El motor de juegos 3D completo dentro de macOS: jerarquía, inspector, vista de escena con gizmos, física, Play mode y scripts en C# (subconjunto real de Unity interpretado en local). Se instala junto a Unity Player, la app separada para probar tus proyectos a pantalla completa.",
+    nativeInstall: ["unity", "unityplayer"],
+    hero: true,
+    sizeMb: 2.4,
+  },
+  {
+    sid: "photopea",
+    name: "Photopea",
+    url: "https://www.photopea.com",
+    developer: "photopea.com",
+    category: "Fotografía",
+    description:
+      "El editor de imágenes estilo Photoshop completo que corre en el navegador: capas, máscaras, PS… abre PSD/XCF/SKETCH y exporta a PNG/JPG/PSD.",
+  },
+  {
+    sid: "geogebra",
+    name: "GeoGebra Calculadora",
+    url: "https://www.geogebra.org/calculator",
+    developer: "geogebra.org",
+    category: "Educación",
+    description:
+      "Calculadora gráfica real: funciones, geometría dinámica, álgebra y estadística. La misma app que usan en clase.",
+  },
+  {
+    sid: "tldraw",
+    name: "tldraw",
+    url: "https://www.tldraw.com",
+    developer: "tldraw.com",
+    category: "Productividad",
+    description:
+      "Pizarra infinita colaborativa: dibuja, escribe y esquemas con la mejor herramienta de lienzo del navegador.",
+  },
+  {
+    sid: "excalidraw",
+    name: "Excalidraw",
+    url: "https://excalidraw.com",
+    developer: "excalidraw.com",
+    category: "Productividad",
+    description:
+      "Pizarra de dibujo con estilo a mano alzada: diagramas, esquemas y diagramas de secuencia en segundos.",
+  },
   {
     sid: "crimes-online-6",
     name: "Crimes Online 6: Mafia City",
@@ -190,7 +242,7 @@ export const STORE_CATALOG: StoreApp[] = [
     url: "https://www.clutcher.io/",
     developer: "clutcher.io",
     category: "Juegos",
-    description: "El shooter táctico por equipos, jugable en el navegador con el motor de axcsOS.",
+    description: "El shooter táctico por equipos, jugable en el navegador con el motor de macOS.",
   },
   {
     sid: "gta-5",
@@ -244,15 +296,15 @@ export const STORE_CATALOG: StoreApp[] = [
     sid: "youtube",
     name: "YouTube",
     url: "https://www.youtube.com",
-    developer: "axcsOS",
+    developer: "macOS",
     category: "Entretenimiento",
-    description: "El cliente YouTube de axcsOS: 100% nativo, sin sesión y sin depender del motor.",
+    description: "El cliente YouTube de macOS: 100% nativo, sin sesión y sin depender del motor.",
     nativeAppId: "youtube",
   },
 ];
 
 /** Apps del sistema que la App Store muestra como incluidas. */
 export const STORE_INCLUDED: { appId: string; name: string; description: string }[] = [
-  { appId: "axcgames", name: "AXCGAMES", description: "El portal de juegos del estudio, incluido en axcsOS." },
-  { appId: "mail", name: "Mail", description: "Correo axcsOS: tu dirección para iniciar sesión en la web." },
+  { appId: "axcgames", name: "AXCGAMES", description: "El portal de juegos del estudio, incluido en macOS." },
+  { appId: "mail", name: "Mail", description: "Correo macOS: tu dirección para iniciar sesión en la web." },
 ];

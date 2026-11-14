@@ -8,7 +8,7 @@ import { APPS } from "../registry";
 import { useFs, listFolder, readFile, createFolder, createFile, renameNode, removeNode, type FsNode } from "../services/fs";
 
 /* ============================================================
-   Desktop — escritorio real de axcsOS
+   Desktop — escritorio real de macOS
    ------------------------------------------------------------
    * Iconos con POSICIÓN LIBRE: arrastra cualquier icono y su
      posición se guarda (localStorage).
@@ -417,7 +417,7 @@ export default function Desktop() {
             <div className="mx-2.5 my-1 h-[0.5px] bg-black/12" />
             <button
               className="mac-menu-item w-full px-2.5 py-[3.5px] text-left"
-              onClick={() => notify("finder", "Información", "axcsOS 1.0 · Z1 Silicon · 16 GB")}
+              onClick={() => notify("finder", "Información", "macOS 27.0 · Apple M4 · 16 GB")}
             >
               Obtener información
             </button>

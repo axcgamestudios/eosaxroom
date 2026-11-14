@@ -1,7 +1,7 @@
 "use client";
 
 /* ============================================================
-   Ventana real de axcsOS — visor del motor en ventana propia
+   Ventana real de macOS — visor del motor en ventana propia
    ------------------------------------------------------------
    Algunos sitios (p. ej. Google) bloquean los inicios de sesión
    en páginas embebidas (iframes) aunque el navegador sea real:
@@ -11,7 +11,7 @@
    Esta página vive en una VENTANA REAL de nivel superior abierta
    por el Navegador. Como comparte origen (y Service Worker) con el OS,
    el motor Scramjet funciona aquí con el MISMO frasco de cookies:
-   la sesión iniciada en esta ventana queda dentro de axcsOS y al
+   la sesión iniciada en esta ventana queda dentro de macOS y al
    cerrarla el Navegador recarga la pestaña para mostrarla.
 
    Además del motor, la barra ofrece "Con mi conexión": navega
@@ -23,7 +23,7 @@
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ExternalLink, Globe, Loader2, RotateCw, ShieldAlert, X } from "lucide-react";
-import { PearLogo } from "@/os/icons";
+import { AppleLogo } from "@/os/icons";
 import {
   defaultWisp,
   ensureEngine,
@@ -175,12 +175,12 @@ function PopupInner() {
     <div className="flex h-screen w-screen flex-col bg-neutral-100 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       {/* barra de la ventana real */}
       <div className="glass lg-specular relative z-10 flex h-11 shrink-0 items-center gap-2 border-b border-black/10 px-3 dark:border-white/10">
-        <PearLogo className="h-4 w-4 shrink-0" />
+        <AppleLogo className="h-4 w-[13px] shrink-0" />
         <Globe size={13} className="shrink-0 text-neutral-500 dark:text-neutral-400" />
-        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">{hostOf(url) || "axcsOS"}</span>
+        <span className="min-w-0 flex-1 truncate text-[12px] font-semibold">{hostOf(url) || "macOS"}</span>
         <span
           className="shrink-0 rounded-full bg-sky-500/15 px-2 py-0.5 text-[9.5px] font-semibold text-sky-600 dark:text-sky-400"
-          title="Esta ventana usa el motor de navegación de axcsOS: la sesión iniciada aquí queda dentro del sistema."
+          title="Esta ventana usa el motor de navegación de macOS: la sesión iniciada aquí queda dentro del sistema."
         >
           motor
         </span>
@@ -194,7 +194,7 @@ function PopupInner() {
         <button
           onClick={goDirect}
           className="flex h-7 items-center gap-1.5 rounded-md px-2 text-[11px] font-medium text-neutral-600 transition hover:bg-black/10 dark:text-neutral-300 dark:hover:bg-white/10"
-          title="Abrir este sitio con TU conexión (IP del usuario, sin motor): útil si el sitio rechaza la IP de los servidores del motor. La sesión quedará en tu navegador, no en axcsOS."
+          title="Abrir este sitio con TU conexión (IP del usuario, sin motor): útil si el sitio rechaza la IP de los servidores del motor. La sesión quedará en tu navegador, no en macOS."
         >
           <ExternalLink size={12} />
           Con mi conexión

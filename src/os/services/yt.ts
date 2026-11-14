@@ -1,5 +1,5 @@
 /* ============================================================
-   YouTube 100% nativo de axcsOS — SIN Scramjet, SIN login.
+   YouTube 100% nativo de macOS — SIN Scramjet, SIN login.
    ------------------------------------------------------------
    Estrategia (verificada en red):
    1. Metadatos (tendencias, búsqueda, comentarios, canales):

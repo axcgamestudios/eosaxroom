@@ -25,7 +25,7 @@ export default function Page() {
   const animSpeed = useOS((s) => s.settings.animSpeed);
   const reduceTransparency = useOS((s) => s.settings.reduceTransparency);
 
-  /* correo de axcsOS en segundo plano: si el usuario tiene dirección, el
+  /* correo de macOS en segundo plano: si el usuario tiene dirección, el
      buzón se mantiene conectado para recibir cartas con notificación real
      aunque la app Mail esté cerrada */
   useEffect(() => {

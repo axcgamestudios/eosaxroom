@@ -1,7 +1,7 @@
 "use client";
 
 /* ============================================================
-   Bóveda de contraseñas de axcsOS — cifrada con AES-256-GCM
+   Bóveda de contraseñas de macOS — cifrada con AES-256-GCM
    ------------------------------------------------------------
    * Guarda credenciales por dominio: { domain, username,
      encryptedPassword } — la contraseña NUNCA en texto plano:

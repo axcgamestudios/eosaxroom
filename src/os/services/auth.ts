@@ -3,7 +3,7 @@
 /* ============================================================
    Identidad del dispositivo
    ------------------------------------------------------------
-   axcsOS ya no usa cuentas: se entra escribiendo cualquier
+   macOS ya no usa cuentas: se entra escribiendo cualquier
    cosa y el perfil (nombre, foto) vive en este navegador.
    Lo único que sigue haciendo falta es una identidad estable
    del dispositivo (la usa, p. ej., la bóveda de contraseñas

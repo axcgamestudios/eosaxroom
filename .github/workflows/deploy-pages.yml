@@ -1,4 +1,4 @@
-name: Deploy axcsOS to GitHub Pages
+name: Deploy macOS to GitHub Pages
 
 on:
   push:

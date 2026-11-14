@@ -1,7 +1,7 @@
 "use client";
 
 /* ============================================================
-   Motor de navegación Scramjet para axcsOS
+   Motor de navegación Scramjet para macOS
    ------------------------------------------------------------
    Cadena completa (todas las piezas verificadas):
    página → Service Worker (scramjet.all.js) → rewriter WASM

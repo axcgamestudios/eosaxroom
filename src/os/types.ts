@@ -149,7 +149,7 @@ export type WindowOpenOptions = {
 
 /* ---------- apps web instaladas (páginas como apps nativas) ---------- */
 
-/** Una página web instalada como app nativa de axcsOS. */
+/** Una página web instalada como app nativa de macOS. */
 export interface WebAppManifest {
   /** identificador estable: slug del host (+ruta si hace falta) */
   id: string;
