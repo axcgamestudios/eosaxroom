@@ -27,6 +27,7 @@ export default function UnityPlayerApp(_props: AppProps) {
   const [running, setRunning] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const boxRef = useRef<HTMLDivElement | null>(null);
   const rtRef = useRef<UnityRuntime | null>(null);
 
   useEffect(() => {
@@ -62,6 +63,18 @@ export default function UnityPlayerApp(_props: AppProps) {
     setRunning(null);
   }, []);
 
+  /* redimensionado en vivo: sin esto, al cambiar el tamaño de la ventana el
+     canvas conserva la resolución vieja y se ve pixelado/desalineado */
+  useEffect(() => {
+    if (!running || !boxRef.current) return;
+    const ro = new ResizeObserver(() => {
+      const r = boxRef.current?.getBoundingClientRect();
+      if (r && r.width > 0) rtRef.current?.resize(r.width, r.height);
+    });
+    ro.observe(boxRef.current);
+    return () => ro.disconnect();
+  }, [running]);
+
   /* teclado → juego (con foco del canvas) */
   useEffect(() => {
     if (!running) return;
@@ -87,7 +100,7 @@ export default function UnityPlayerApp(_props: AppProps) {
   /* ---------- render ---------- */
   if (running) {
     return (
-      <div className="relative h-full bg-black">
+      <div ref={boxRef} className="relative h-full bg-black">
         <canvas
           ref={canvasRef}
           tabIndex={0}

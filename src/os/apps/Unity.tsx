@@ -142,10 +142,16 @@ export default function UnityApp({ win }: AppProps) {
       orbit.dampingFactor = 0.08;
       orbit.addEventListener("change", () => rt.renderOnce());
       orbitRef.current = orbit;
+      // tamaño real inicial: sin esto el canvas queda a 300×150 estirado por CSS (pixeleado)
+      const vr = viewRef.current?.getBoundingClientRect();
+      if (vr && vr.width > 0) rt.resize(vr.width, vr.height);
       rt.renderOnce();
       // pick por clic
       const onDown = (ev: MouseEvent) => {
         if ((ev.target as HTMLElement).tagName !== "CANVAS") return;
+        // no re-seleccionar cuando el puntero está sobre el gizmo (arrastrando herramientas)
+        const gz = gizmoRef.current as { axis?: string | null } | null;
+        if (gz && gz.axis) return;
         const rect = rt.renderer!.domElement.getBoundingClientRect();
         const x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
         const y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
@@ -181,31 +187,57 @@ export default function UnityApp({ win }: AppProps) {
     const rt = editRtRef.current;
     if (!rt || !project) return;
     rt.scene = project.scene;
-    rt.rebuild();
+    // ¿misma estructura (añadir/quitar objetos) o solo cambiaron valores?
+    const sameShape =
+      rt.obj3d.size === project.scene.objects.length &&
+      project.scene.objects.every((o) => rt.obj3d.has(o.id));
+    if (sameShape) {
+      // sincronizar en vivo: no interrumpe el gizmo ni su arrastre
+      rt.syncLive();
+    } else {
+      rt.rebuild();
+    }
     rt.renderOnce();
   }, [project]);
 
   /* ---------- gizmo de transformación del objeto seleccionado ---------- */
   useEffect(() => {
     if (!selectedId || !editRtRef.current || playing) {
-      if (gizmoRef.current) {
-        (gizmoRef.current as { detach: () => void; dispose?: () => void }).dispose?.();
-        (gizmoRef.current as { detach: () => void }).detach();
+      const g = gizmoRef.current as ({ detach: () => void; dispose?: () => void } & { __helper?: unknown }) | null;
+      if (g) {
+        try {
+          g.detach();
+          g.dispose?.();
+        } catch { /* ya desechado */ }
+        const rt = editRtRef.current;
+        const helper = g.__helper as { parent?: unknown } | undefined;
+        if (helper && rt?.threeScene) (rt.threeScene as unknown as { remove: (o: unknown) => void }).remove(helper);
+        gizmoRef.current = null;
       }
       return;
     }
     let alive = true;
     void (async () => {
       const rt = editRtRef.current;
-      if (!rt || !rt.threeScene) return;
+      if (!rt || !rt.threeScene || !rt.renderer || !rt.camera) return;
       const { TransformControls } = await import("three/examples/jsm/controls/TransformControls.js");
-      if (!alive || !rt.threeScene) return;
-      let gizmo = gizmoRef.current as (InstanceType<typeof TransformControls> & { __scene?: unknown }) | null;
-      if (!gizmo || !rt.threeScene.children.includes(gizmo as never)) {
-        gizmo = new TransformControls(rt.camera!, rt.renderer!.domElement);
-        gizmo.size = 0.85;
-        (rt.threeScene as unknown as { add: (o: unknown) => void }).add(gizmo);
+      if (!alive || !rt.threeScene || !rt.renderer || !rt.camera) return;
+      type Gz = InstanceType<typeof TransformControls> & { __helper?: unknown };
+      let gizmo = gizmoRef.current as Gz | null;
+      if (!gizmo) {
+        gizmo = new TransformControls(rt.camera, rt.renderer.domElement) as Gz;
+        (gizmo as unknown as { size: number }).size = 0.85;
+        // three r169+: TransformControls ya no es un Object3D — su helper (las flechas)
+        // debe añadirse aparte a la escena, o el gizmo no se ve ni responde
+        const helper = ((gizmo as unknown as { getHelper?: () => unknown }).getHelper?.() ?? gizmo) as unknown;
+        gizmo.__helper = helper;
+        (rt.threeScene as unknown as { add: (o: unknown) => void }).add(helper);
         gizmoRef.current = gizmo;
+        // arrastrar el gizmo no debe orbitar la cámara a la vez
+        gizmo.addEventListener("dragging-changed", (ev) => {
+          const orbit = orbitRef.current as { enabled: boolean } | null;
+          if (orbit) orbit.enabled = !(ev as unknown as { value: boolean }).value;
+        });
         gizmo.addEventListener("objectChange", () => {
           const o3 = gizmo!.object;
           if (!o3) return;
@@ -278,6 +310,15 @@ export default function UnityApp({ win }: AppProps) {
       if ((e.key === "Delete" || e.key === "Backspace") && selectedId) {
         e.preventDefault();
         deleteSelected();
+      }
+      // atajos de herramientas como en Unity: Q vista, W mover, E rotar, R escalar
+      if (!e.metaKey && !e.ctrlKey && !e.altKey) {
+        const k = e.key.toLowerCase();
+        if (k === "q") setTool("hand");
+        else if (k === "w") setTool("translate");
+        else if (k === "e") setTool("rotate");
+        else if (k === "r") setTool("scale");
+        else if (k === "escape" || k === "esc") setSelectedId(null);
       }
     };
     window.addEventListener("keydown", onKey);

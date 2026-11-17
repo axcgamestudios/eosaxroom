@@ -257,6 +257,38 @@ export class UnityRuntime {
     for (const o of this.scene.objects) this.addObject3D(o);
   }
 
+  /** sincroniza transforms y visuales EN VIVO sobre los mismos Object3D,
+      sin reconstruir: usado por el editor cuando solo cambian valores
+      (arrastre del gizmo, Inspector). Así el gizmo no se desengancha. */
+  syncLive() {
+    for (const o of this.scene.objects) {
+      const obj = this.obj3d.get(o.id);
+      if (!obj) continue;
+      this.applyTransform(obj, o);
+      obj.name = o.name;
+      const meshC = o.components.find((c) => c.type === "MeshRenderer");
+      const o3 = obj as unknown as {
+        isMesh?: boolean; isLight?: boolean; isPointLight?: boolean; isSpotLight?: boolean;
+        material?: { color?: { set: (c: string) => void }; metalness: number; roughness: number };
+        color?: { set: (c: string) => void }; intensity: number;
+      };
+      if (o3.isMesh) {
+        obj.visible = o.active && (meshC?.enabled ?? true);
+        const mesh = meshC?.enabled ? meshC.mesh : undefined;
+        if (mesh && o3.material?.color) {
+          o3.material.color.set(mesh.color);
+          o3.material.metalness = mesh.metallic;
+          o3.material.roughness = 1 - mesh.smoothness;
+        }
+      }
+      const lightC = o.components.find((c) => c.type === "Light" && c.enabled)?.light;
+      if (o3.isLight && lightC) {
+        o3.color?.set(lightC.color);
+        o3.intensity = o3.isPointLight ? lightC.intensity * 14 : o3.isSpotLight ? lightC.intensity * 8 : lightC.intensity;
+      }
+    }
+  }
+
   private addObject3D(o: UObject) {
     if (!this.threeScene) return;
     const THREE = (globalThis as { __THREE?: typeof import("three") }).__THREE!;

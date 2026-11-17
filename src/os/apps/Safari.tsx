@@ -112,6 +112,7 @@ function normalizeInput(raw: string): string {
   const url = raw.trim();
   if (!url) return START;
   if (url.startsWith(SEARCH_PREFIX)) return url; // ya viene prefijada (p. ej. StartPage): idempotente
+  if (/^about:/i.test(url)) return url; // páginas internas del navegador (about:start) — nunca buscarlas
   if (/^https?:\/\//i.test(url)) return url;
   if (/^[\w-]+(\.[\w-]+)+(:\d+)?(\/\S*)?$/.test(url) && !url.includes(" ")) return `https://${url}`;
   return SEARCH_PREFIX + encodeURIComponent(url);
@@ -1134,6 +1135,30 @@ export default function SafariApp({ win }: AppProps) {
         <button onClick={() => cmd("forward")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-25" title="Adelante" disabled={!activeTabData || activeTabData.hIndex >= activeTabData.history.length - 1}>
           <ArrowRight size={19} strokeWidth={1.9} />
         </button>
+        {/* Recargar — visible siempre que haya página (⌘R) */}
+        <button
+          onClick={() => cmd("reload")}
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-25"
+          title="Recargar página (⌘R)"
+          disabled={showStart || showSearch}
+        >
+          <RotateCw size={17} strokeWidth={1.9} />
+        </button>
+        {/* Detener (mientras carga) o Inicio (como el Safari clásico) */}
+        {activeTabData?.loading ? (
+          <button onClick={() => cmd("stop")} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)]" title="Detener carga (⌘.)">
+            <XCircle size={17} strokeWidth={1.9} />
+          </button>
+        ) : (
+          <button
+            onClick={() => activeTabData && void navigateTab(activeTabData.id, START)}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[var(--nav-text)] transition hover:bg-[var(--nav-hover)] disabled:opacity-25"
+            title="Página de inicio"
+            disabled={showStart || showSearch}
+          >
+            <Home size={17} strokeWidth={1.9} />
+          </button>
+        )}
 
         {/* omnibox: píldora centrada estilo Safari — dominio en negrita */}
         <form
@@ -1184,15 +1209,15 @@ export default function SafariApp({ win }: AppProps) {
               directa
             </span>
           )}
-          {/* recarga/detener dentro del campo, como Safari 15+ */}
+          {/* recarga/detener dentro del campo, como Safari 15+: X mientras carga */}
           {!addrEditing && activeTabData && (
             <button
               type="button"
               onClick={() => (activeTabData.loading ? cmd("stop") : cmd("reload"))}
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--nav-text-dim)] transition hover:bg-[var(--nav-hover)] hover:text-[var(--nav-text)]"
-              title={activeTabData.loading ? "Detener carga" : "Recargar página (⌘R)"}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[var(--nav-text-dim)] transition hover:bg-[var(--nav-hover)] hover:text-[var(--nav-text)]"
+              title={activeTabData.loading ? "Detener carga (⌘.)" : "Recargar página (⌘R)"}
             >
-              <RotateCw size={12} className={activeTabData.loading ? "animate-spin" : ""} />
+              {activeTabData.loading ? <X size={14} strokeWidth={2.4} /> : <RotateCw size={13} />}
             </button>
           )}
           {!addrEditing && (
@@ -1757,6 +1782,14 @@ export default function SafariApp({ win }: AppProps) {
       e.preventDefault();
       const t = tabsRef.current[activeRef.current];
       if (t) closeTab(t.id);
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
+      // ⌘R: recargar (como Safari)
+      e.preventDefault();
+      cmd("reload");
+    } else if ((e.metaKey || e.ctrlKey) && (e.key === "." || e.key === "Escape") && tabsRef.current[activeRef.current]?.loading) {
+      // ⌘. o Esc: detener la carga (como Safari)
+      e.preventDefault();
+      cmd("stop");
     }
   }
 }
