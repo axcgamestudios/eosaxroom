@@ -238,7 +238,17 @@ export async function ensureEngine(wispUrl: string): Promise<ScramjetControllerA
     if (!initPromise) initPromise = doInit(wispUrl);
     controller = await initPromise;
   } else if (wispUrl && wispUrl !== currentWisp) {
-    await applyTransport(wispUrl);
+    /* Solo se cambia de servidor si el solicitado está SANO. El wisp persistido
+     * (p. ej. el motor propio caído o suspendido) NO debe revertir el failover
+     * sano que la cadena de salud ya aplicó: manda el que de verdad sirve. */
+    const wanted = await probeWisp(wispUrl, wispUrl === MAIN_WISP ? 22000 : 9000);
+    if (wanted) {
+      await applyTransport(wispUrl);
+    } else {
+      // se queda con el activo (sano tras el failover) y se refleja en el diagnóstico
+      const active = currentWisp || (await ensureHealthyWisp().catch(() => currentWisp));
+      if (active) updateDiag({ wispUrl: active, status: "ready", transportSet: true, error: undefined });
+    }
   }
   return controller;
 }
@@ -312,12 +322,15 @@ async function doInit(wispUrl: string): Promise<ScramjetControllerApi> {
     });
 
     // ANTES de fijar el transporte se comprueba la cadena con la prueba
-    // honesta (datos reales): si el motor propio está dormido/medio muerto
-    // (arranque en frío de Render), se aplica el respaldo sano de verdad
-    // en vez de dejar la primera navegación colgada para siempre.
+    // honesta (datos reales): si el motor propio está suspendido o medio muerto
+    // (503 de Render), se aplica el respaldo sano de verdad en vez de dejar
+    // la primera navegación colgada para siempre.
     let healthy = wispUrl;
     try {
       healthy = await ensureHealthyWisp();
+      if (healthy !== wispUrl) {
+        console.info(`[motor] ${wispUrl} no sirve; transporte sano aplicado: ${healthy}`);
+      }
     } catch {
       /* sin prueba: se usa el solicitado tal cual, el watchdog de Safari actuará */
     }
@@ -343,7 +356,21 @@ async function doInit(wispUrl: string): Promise<ScramjetControllerApi> {
   }
 }
 
-/** Cambia el servidor wisp en caliente (Ajustes → Navegador). */
+/* ---------- caché de salud de wisps ----------
+   Re-probar un servidor acabado de fallar en CADA navegación (p. ej. el propio
+   suspendido) cuesta segundos por carga y hace la navegación inusable: el
+   fallo se recuerda 60 s, el éxito 15 s. */
+const wispHealthCache = new Map<string, { ok: boolean; until: number }>();
+export async function probeWisp(url: string, timeoutMs = 9000): Promise<boolean> {
+  const hit = wispHealthCache.get(url);
+  if (hit) {
+    if (Date.now() > hit.until) wispHealthCache.delete(url);
+    else return hit.ok;
+  }
+  const r = await testWisp(url, timeoutMs);
+  wispHealthCache.set(url, { ok: r.ok, until: Date.now() + (r.ok ? 15000 : 60000) });
+  return r.ok;
+}
 export async function applyTransport(wispUrl: string): Promise<void> {
   if (!connection) throw new Error("El motor aún no está inicializado");
   await connection.setTransport(`${appBase()}/libcurl/index.mjs`, [{ websocket: wispUrl }]);
@@ -388,10 +415,10 @@ export async function ensureHealthyWisp(): Promise<string> {
     seen.add(wisp);
     // El motor propio puede estar frío (Render se duerme sin tráfico): margen
     // amplio para el primer arranque; el resto de la cadena se prueba rápido.
-    // La prueba es a nivel de DATOS: un WS que abre pero no fluye datos es un
-    // motor medio muerto que colgaría las páginas para siempre.
-    const r = await testWisp(wisp, wisp === MAIN_WISP ? 22000 : 8000);
-    if (r.ok) {
+    // La prueba es a nivel de DATOS (con caché de 60 s en los fallos): un WS que
+    // abre pero no fluye datos es un motor medio muerto que colgaría las páginas.
+    const ok = await probeWisp(wisp, wisp === MAIN_WISP ? 22000 : 8000);
+    if (ok) {
       if (wisp !== cur) await setTransportFresh(wisp);
       updateDiag({ wispUrl: wisp, status: controller || diag.scriptsLoaded ? "ready" : "idle", transportSet: true, error: undefined });
       return wisp;
@@ -418,6 +445,13 @@ export function startWispKeepalive(): void {
   const tick = (delay: number) => {
     if (keepaliveTimer) clearTimeout(keepaliveTimer);
     keepaliveTimer = setTimeout(() => {
+      // solo mantiene despierto el motor PROPIO; si el activo es el público de
+      // respaldo (o local), no hay nada que despertar y se reintenta más tarde
+      const active = currentWisp || lastWispUrl;
+      if (active && active !== MAIN_WISP) {
+        tick(60000);
+        return;
+      }
       try {
         keepaliveWs?.close();
       } catch {
