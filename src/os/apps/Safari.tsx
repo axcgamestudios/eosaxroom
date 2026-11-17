@@ -1718,6 +1718,16 @@ export default function SafariApp({ win }: AppProps) {
                     } catch {
                       doc = null;
                     }
+                    // ignorar la carga INICIAL del about:blank (antes de que el motor
+                    // navegue): no es la página. Sin esto, la escalera se borraba en
+                    // el primer onLoad y un frame.go() fallido dejaba la pestaña
+                    // blanca para siempre: ni error, ni directo, ni spinner.
+                    try {
+                      const loc = iframeRefs.current.get(t.id)?.contentWindow?.location?.href;
+                      if (!loc || loc === "about:blank") return;
+                    } catch {
+                      /* ubicación no legible: seguir con las comprobaciones */
+                    }
                     if (looksLikeErrorPage(doc)) {
                       const h = hangRef.current.get(t.id);
                       if (h) {
