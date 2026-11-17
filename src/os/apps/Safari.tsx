@@ -11,6 +11,7 @@ import {
   Globe,
   History as HistoryIcon,
   Home,
+  Info,
   Lock,
   Mail as MailIconLucide,
   KeyRound,
@@ -1886,19 +1887,31 @@ function SearchResultsPage({ query, engine, searxngUrl, onOpen, onFallback }: { 
       setError(null);
       try {
         let res: SearchResult[];
+        let used = engineName;
         if (engine === "searxng" && searxngUrl) {
-          setEngineName("SearXNG");
           res = await searchSearXNG(searxngUrl, query);
         } else {
-          setEngineName("Bing");
-          // 1) Bing RSS (resultados reales, sin clave)
+          // cadena de búsqueda nativa — cada proveedor verificado con RELEVANCIA:
+          // Bing y DDG rellenan/captchan a las IPs de servidor (motor) y hay que
+          // detectarlo para no mostrar basura como si fueran resultados.
           try {
             res = await searchBingRSS(query);
+            if (!resultsRelevant(res, query)) throw new Error("relleno");
+            used = "Bing";
           } catch {
-            // 2) DDG html como respaldo
-            res = await searchDDG(query);
+            try {
+              res = await searchDDG(query);
+              if (!resultsRelevant(res, query)) throw new Error("relleno");
+              used = "Bing";
+            } catch {
+              // Wikipedia API: funciona desde IPs de servidor (API pública real)
+              // → respaldo siempre disponible con resultados reales
+              res = await searchWikipedia(query);
+              used = "Wikipedia";
+            }
           }
         }
+        setEngineName(used);
         if (!alive) return;
         if (res.length === 0) {
           // el proveedor bloqueó la consulta directa: abrir la búsqueda DENTRO
@@ -1931,6 +1944,12 @@ function SearchResultsPage({ query, engine, searxngUrl, onOpen, onFallback }: { 
           <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-[12px] text-amber-700 dark:text-amber-300">
             <Search size={13} className="shrink-0" />
             El proveedor bloqueó la consulta directa. Abriendo la búsqueda dentro del motor (donde funciona con JavaScript real)…
+          </div>
+        )}
+        {results && engineName === "Wikipedia" && (
+          <div className="flex items-center gap-2 rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 text-[11.5px] text-sky-700 dark:text-sky-300">
+            <Info size={13} className="shrink-0" />
+            Los buscadores web bloquean la IP del motor de navegación: resultados reales de Wikipedia (API pública). Con el motor de respaldo público se comparte IP; reactiva el motor propio para búsquedas web completas.
           </div>
         )}
         {!error && !results && (
@@ -2001,6 +2020,63 @@ async function searchDDG(query: string): Promise<SearchResult[]> {
     const snippet = el.querySelector(".result__snippet")?.textContent?.trim() ?? "";
     out.push({ title: a.textContent?.trim() || href, url: href, snippet, host: hostOf(href) });
   });
+  return out.slice(0, 20);
+}
+
+/* ---------- validación de relevancia de resultados ----------
+   Bing/DDG, ante una IP de servidor (la del motor), responden con páginas de
+   RELLENO aparentemente válidas (RSS con ítems irrelevantes, SERP genérica) o
+   con un desafío anti-bot. Mostrarlas como "resultados" es mentir al usuario:
+   la cadena de búsqueda exige que al menos un resultado tenga relación REAL
+   con la consulta (un token del query en título, snippet o host). */
+const STOPWORDS = new Set(["de", "la", "el", "los", "las", "un", "una", "y", "o", "en", "para", "con", "del", "al", "que", "the", "of", "and", "or", "in", "on", "for", "to", "a", "is", "how", "what", "cómo", "qué", "dónde"]);
+
+function queryTokens(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[^a-záéíóúñü0-9]+/i)
+    .filter((t) => t.length >= 3 && !STOPWORDS.has(t));
+}
+
+/** ¿Hay al menos un resultado que hable de lo que se buscó? */
+function resultsRelevant(results: SearchResult[], query: string): boolean {
+  if (results.length === 0) return false;
+  const tokens = queryTokens(query);
+  if (tokens.length === 0) return true; // consulta genérica: no discriminar
+  const hay = tokens.join("|").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rx = new RegExp(hay, "i");
+  return results.some((r) => rx.test(`${r.title} ${r.snippet} ${r.host}`));
+}
+
+/** Búsqueda Wikipedia (API pública real, funciona desde IPs de servidor).
+ *  Consulta es y en en paralelo e intercala: respaldo siempre disponible con
+ *  resultados reales cuando los buscadores web bloquean la IP del motor. */
+async function searchWikipedia(query: string): Promise<SearchResult[]> {
+  const apis = ["es", "en"];
+  const bases = await Promise.all(
+    apis.map(async (lang) => {
+      try {
+        const target = `https://${lang}.wikipedia.org/w/api.php?action=query&format=json&list=search&srlimit=10&srsearch=${encodeURIComponent(query)}&origin=*`;
+        const res = await engineFetch(target, { signal: AbortSignal.timeout(9000) });
+        if (!res.ok) return [] as SearchResult[];
+        const data = (await res.json()) as { query?: { search?: { title: string; snippet?: string }[] } };
+        return (data.query?.search ?? []).map((s) => ({
+          title: s.title,
+          url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(s.title.replace(/ /g, "_"))}`,
+          snippet: (s.snippet ?? "").replace(/<[^>]+>/g, "").trim(),
+          host: `${lang}.wikipedia.org`,
+        }));
+      } catch {
+        return [] as SearchResult[];
+      }
+    })
+  );
+  // intercalar es/en para mezclar ambos idiomas
+  const out: SearchResult[] = [];
+  for (let i = 0; i < 10; i++) {
+    if (bases[0][i]) out.push(bases[0][i]);
+    if (bases[1][i]) out.push(bases[1][i]);
+  }
   return out.slice(0, 20);
 }
 
