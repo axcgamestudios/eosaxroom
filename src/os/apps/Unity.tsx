@@ -290,7 +290,9 @@ export default function UnityApp({ win }: AppProps) {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+    // project: al cargar, la vista pasa de no existir ("Abriendo Unity…") a existir;
+    // con [] el efecto corría demasiado pronto y el observer nunca se llegaba a enganchar
+  }, [project?.name]);
 
   /* ---------- teclado del editor ---------- */
   useEffect(() => {
