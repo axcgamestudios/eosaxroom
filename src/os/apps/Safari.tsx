@@ -36,7 +36,7 @@ import {
   applyTransport,
   DEMO_WISP,
   ensureEngine,
-  engineFetch,
+  engineEncodeUrl,
   getDiagnostics,
   MAIN_WISP,
   onDiagnostics,
@@ -1979,7 +1979,7 @@ function SearchResultsPage({ query, engine, searxngUrl, onOpen, onFallback }: { 
 /** Búsqueda real con Bing (salida RSS pública, sin clave) a través del motor. */
 async function searchBingRSS(query: string): Promise<SearchResult[]> {
   const target = `https://www.bing.com/search?q=${encodeURIComponent(query)}&format=rss&count=20`;
-  const res = await engineFetch(target, { signal: AbortSignal.timeout(9000) });
+  const res = await fetch(await engineEncodeUrl(target), { signal: AbortSignal.timeout(9000) });
   if (!res.ok) throw new Error(`Bing RSS devolvió HTTP ${res.status}`);
   const xml = await res.text();
   const doc = new DOMParser().parseFromString(xml, "text/xml");
@@ -1996,7 +1996,7 @@ async function searchBingRSS(query: string): Promise<SearchResult[]> {
 /** Búsqueda real: DDG html a través del motor → parseo a resultados nativos. */
 async function searchDDG(query: string): Promise<SearchResult[]> {
   const target = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  const res = await engineFetch(target, {
+  const res = await fetch(await engineEncodeUrl(target), {
     headers: { "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36" },
     signal: AbortSignal.timeout(9000),
   });
@@ -2057,7 +2057,9 @@ async function searchWikipedia(query: string): Promise<SearchResult[]> {
     apis.map(async (lang) => {
       try {
         const target = `https://${lang}.wikipedia.org/w/api.php?action=query&format=json&list=search&srlimit=10&srsearch=${encodeURIComponent(query)}&origin=*`;
-        const res = await engineFetch(target, { signal: AbortSignal.timeout(9000) });
+        // encodeUrl ANTES de crear el plazo: el arranque frío del motor no debe
+        // consumir el timeout de la búsqueda (9 s aplican al fetch ya caliente)
+        const res = await fetch(await engineEncodeUrl(target), { signal: AbortSignal.timeout(9000) });
         if (!res.ok) return [] as SearchResult[];
         const data = (await res.json()) as { query?: { search?: { title: string; snippet?: string }[] } };
         return (data.query?.search ?? []).map((s) => ({

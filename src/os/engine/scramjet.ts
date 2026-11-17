@@ -361,9 +361,9 @@ async function doInit(wispUrl: string): Promise<ScramjetControllerApi> {
    suspendido) cuesta segundos por carga y hace la navegación inusable: el
    fallo se recuerda 60 s, el éxito 15 s. */
 const wispHealthCache = new Map<string, { ok: boolean; until: number }>();
-export async function probeWisp(url: string, timeoutMs = 9000): Promise<boolean> {
+export async function probeWisp(url: string, timeoutMs = 9000, force = false): Promise<boolean> {
   const hit = wispHealthCache.get(url);
-  if (hit) {
+  if (!force && hit) {
     if (Date.now() > hit.until) wispHealthCache.delete(url);
     else return hit.ok;
   }
@@ -404,26 +404,33 @@ async function setTransportFresh(wispUrl: string): Promise<void> {
 }
 
 /** Comprueba la cadena de wisps y aplica el primero sano. Devuelve el wisp activo.
- *  Cadena: motor propio (Render) → demo público → wisp local (solo desarrollo). */
+ *  Cadena: motor propio (Render) → demo público → wisp local (solo desarrollo).
+ *  DOS pasadas: la primera con plazos normales; si nada fluyó, la segunda
+ *  re-prueba saltándose la caché de fallos y con margen amplio — la PRIMERA
+ *  conexión a un servidor (TLS frío + Cloudflare) puede tardar más que el
+ *  plazo normal y agotar la cadena haría fijar un transporte muerto. */
 export async function ensureHealthyWisp(): Promise<string> {
   const cur = currentWisp || lastWispUrl || defaultWisp();
   const isLocal = typeof window !== "undefined" && ["localhost", "127.0.0.1", "0.0.0.0"].includes(window.location.hostname);
   const chain = [cur, MAIN_WISP, DEMO_WISP, ...(isLocal ? [LOCAL_WISP] : [])];
-  const seen = new Set<string>();
-  for (const wisp of chain) {
-    if (seen.has(wisp)) continue;
-    seen.add(wisp);
-    // El motor propio puede estar frío (Render se duerme sin tráfico): margen
-    // amplio para el primer arranque; el resto de la cadena se prueba rápido.
-    // La prueba es a nivel de DATOS (con caché de 60 s en los fallos): un WS que
-    // abre pero no fluye datos es un motor medio muerto que colgaría las páginas.
-    const ok = await probeWisp(wisp, wisp === MAIN_WISP ? 22000 : 8000);
-    if (ok) {
-      if (wisp !== cur) await setTransportFresh(wisp);
-      updateDiag({ wispUrl: wisp, status: controller || diag.scriptsLoaded ? "ready" : "idle", transportSet: true, error: undefined });
-      return wisp;
+  for (let pass = 0; pass < 2; pass++) {
+    const seen = new Set<string>();
+    for (const wisp of chain) {
+      if (seen.has(wisp)) continue;
+      seen.add(wisp);
+      // El motor propio puede estar frío (Render se duerme sin tráfico): margen
+      // amplio para el primer arranque; el resto de la cadena se prueba rápido.
+      // La prueba es a nivel de DATOS (con caché en la 1ª pasada): un WS que
+      // abre pero no fluye datos es un motor medio muerto que colgaría las páginas.
+      const ok = await probeWisp(wisp, pass === 0 ? (wisp === MAIN_WISP ? 22000 : 8000) : 16000, pass === 1);
+      if (ok) {
+        if (wisp !== cur || pass === 1) await setTransportFresh(wisp);
+        updateDiag({ wispUrl: wisp, status: controller || diag.scriptsLoaded ? "ready" : "idle", transportSet: true, error: undefined });
+        return wisp;
+      }
     }
   }
+  console.warn("[motor] ningún wisp de la cadena hizo fluir datos; se mantiene el solicitado");
   return cur; // nada sano: se queda con el actual, los reintentos lo volverán a probar
 }
 
