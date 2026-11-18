@@ -57,3 +57,37 @@ server.log
 # worktree local de despliegue a gh-pages (tanto directorio como gitlink)
 .deploy-gh
 .deploy-gh/
+
+# ============================================================
+# Peso: basura de desarrollo/agentes que NUNCA debe subirse
+# ============================================================
+# capturas de pantalla de pruebas (llegaron a ocupar 99 MB)
+scripts/shots/
+download/
+upload/
+# residuos de herramientas internas del entorno de desarrollo
+.zscripts/
+tool-results/
+worklog.md
+*.pid
+# bases de datos locales y backups
+db/
+*.db
+*.sqlite
+*.sqlite3
+download/axcsOS-backup/
+# imagenes sueltas de referencia en la raiz (los iconos reales viven en public/icons)
+/*.jpg
+/*.jpeg
+/*.JPG
+/*.png
+/*.PNG
+/*.webp
+# lockfile duplicado: el proyecto usa bun (bun.lock)
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+# temporales del build:pages
+.api-build-hidden
+.api-build-hidden-duplicate
+

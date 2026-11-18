@@ -1,0 +1,55 @@
+# .vercelignore — evita subir al deploy de Vercel lo que no necesita el build.
+# Vercel cobra/consume ancho de banda por archivos subidos: manda solo lo necesario.
+
+# historial
+.git
+.gitattributes
+
+# dependencias (Vercel las instala con bun/npm)
+node_modules
+**/node_modules
+
+# builds locales y caches
+.next
+out
+dist
+build
+coverage
+*.tsbuildinfo
+
+# basura de desarrollo / auditoría
+scripts
+download
+upload
+tool-results
+.zscripts
+db
+tests
+examples
+worklog.md
+mini-services
+
+# capturas e imágenes de referencia (los assets reales viven en public/)
+*.png
+*.jpg
+*.jpeg
+*.JPG
+*.PNG
+*.webp
+!public/**/*.png
+!public/**/*.jpg
+!public/**/*.webp
+!src/app/icon.png
+!src/app/apple-icon.png
+
+# logs y temporales
+*.log
+*.pid
+.api-build-hidden
+.api-build-hidden-duplicate
+
+# entorno local
+.env
+.env*
+.vercel
+.claude

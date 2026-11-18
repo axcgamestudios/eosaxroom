@@ -22,6 +22,15 @@ const MAX_ATTACHMENT = 2 * 1024 * 1024; // 2 MB en base64
 const MAX_BODY = 4 * 1024 * 1024;
 const TOKEN_TTL_MS = 1000 * 60 * 60 * 24 * 30; // 30 días
 
+/* ---------------- control de almacenamiento en disco (anti-acumulación) ----------------
+ * El servidor gratuito tiene cuota de disco limitada. Estos límites evitan que
+ * data.json crezca sin fin: los adjuntos caducan y hay un presupuesto global.
+ * Pon AOS_DATA_FILE=/tmp/aos-data.json si el host reinicia el disco (ephemeral):
+ * el backend funcionará igual pero los datos no persisten entre reinicios. */
+const ATTACH_TTL_MS = Number(process.env.AOS_ATTACH_TTL_DAYS || 7) * 24 * 60 * 60 * 1000; // adjuntos > 7 días se borran
+const ATTACH_BUDGET = Number(process.env.AOS_ATTACH_MAX_MB || 32) * 1024 * 1024; // máx. total de adjuntos guardados
+const SWEEP_EVERY_MS = Number(process.env.AOS_SWEEP_MINUTES || 60) * 60 * 1000;
+
 /* ---------------- almacenamiento (archivo JSON, escrituras atómicas) ---------------- */
 let db = { users: {}, tokens: {}, chats: {}, seq: 1 };
 async function load() {
@@ -30,6 +39,7 @@ async function load() {
   } catch (e) {
     console.error("[aos-backend] no se pudo leer data.json, empezando vacío:", e.message);
   }
+  if (sweep()) await save();
 }
 let saving = Promise.resolve();
 function save() {
@@ -43,6 +53,45 @@ function save() {
 }
 const uid = (p) => p + "_" + db.seq++;
 const now = () => Date.now();
+
+/* ---------------- purga periódica ----------------
+ * 1) tokens caducados fuera
+ * 2) adjuntos más antiguos que ATTACH_TTL_MS fuera (el mensaje de texto se conserva)
+ * 3) presupuesto global de adjuntos: si se supera, se van borrando los más viejos
+ * Así data.json nunca supera unos pocos MB y el disco del host no se llena. */
+function sweep() {
+  let changed = false;
+  const t = now();
+  for (const [k, v] of Object.entries(db.tokens)) {
+    if (v.expires < t) { delete db.tokens[k]; changed = true; }
+  }
+  // lista cronológica de todos los mensajes con adjunto
+  const withAttach = [];
+  for (const c of Object.values(db.chats)) {
+    if (!Array.isArray(c.messages)) continue;
+    for (const m of c.messages) if (m.attachment) withAttach.push(m);
+  }
+  withAttach.sort((a, b) => a.time - b.time);
+  let bytes = 0;
+  for (const m of withAttach) bytes += m.attachment?.data?.length || 0;
+  const drop = (m) => {
+    const sz = m.attachment?.data?.length || 0;
+    if (!m.text) { // adjunto sin texto → el mensaje entero se va
+      const c = Object.values(db.chats).find((c) => Array.isArray(c.messages) && c.messages.includes(m));
+      if (c) c.messages = c.messages.filter((x) => x !== m);
+    } else {
+      delete m.attachment;
+    }
+    bytes -= sz;
+    changed = true;
+  };
+  for (const m of withAttach) if (t - m.time > ATTACH_TTL_MS) drop(m);
+  for (const m of withAttach) {
+    if (bytes <= ATTACH_BUDGET) break;
+    if (m.attachment && t - m.time <= ATTACH_TTL_MS) drop(m); // FIFO: los más viejos primero
+  }
+  return changed;
+}
 
 /* ---------------- seguridad ---------------- */
 const rateBuckets = new Map(); // ip → {count, reset}
@@ -333,6 +382,7 @@ const server = http.createServer(async (req, res) => {
         if (hasAtt) msg.attachment = { name: b.attachment.name.slice(0, 120), mime: b.attachment.mime, data: b.attachment.data };
         chat.messages.push(msg);
         if (chat.messages.length > 500) chat.messages = chat.messages.slice(-500);
+        if (hasAtt) sweep(); // mantiene el presupuesto de adjuntos justo después de recibir uno
         await save();
         return json(res, 201, { message: { ...msg, mine: true } });
       }
@@ -346,8 +396,11 @@ const server = http.createServer(async (req, res) => {
 });
 
 await load();
+const sweepTimer = setInterval(() => { if (sweep()) save(); }, SWEEP_EVERY_MS);
+sweepTimer.unref?.(); // no mantiene el proceso vivo por la purga
 server.listen(PORT, () => {
   console.log(`aos-backend escuchando en :${PORT}`);
   console.log(`  orígenes permitidos: ${ALLOWED_ORIGINS.join(", ")}`);
   console.log(`  datos: ${DATA_FILE}`);
+  console.log(`  purga: adjuntos>${Math.round(ATTACH_TTL_MS / 864e5)}d, presupuesto ${(ATTACH_BUDGET / 1048576) | 0}MB, cada ${Math.round(SWEEP_EVERY_MS / 60000)}min`);
 });

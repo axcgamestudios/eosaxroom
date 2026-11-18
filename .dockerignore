@@ -1,0 +1,63 @@
+# .dockerignore — evita enviar basura al contexto de build de Docker.
+# Sin esto, `docker build` desde la raíz subiría >200 MB (.git, node_modules, capturas)
+# al daemon aunque el Dockerfile solo copie server/.
+
+# historial y git
+.git
+.gitignore
+.gitattributes
+
+# dependencias instaladas (se instalan dentro de la imagen)
+node_modules
+**/node_modules
+
+# builds y caches
+.next
+out
+dist
+build
+coverage
+*.tsbuildinfo
+
+# basura de desarrollo / auditoría (nunca debe pesar el build)
+scripts
+download
+upload
+tool-results
+.zscripts
+db
+tests
+examples
+worklog.md
+mini-services
+
+# capturas e imágenes de referencia
+*.png
+*.jpg
+*.jpeg
+*.JPG
+*.PNG
+*.webp
+!public/**/*.png
+!public/**/*.jpg
+!public/**/*.webp
+!src/app/icon.png
+!src/app/apple-icon.png
+
+# logs y temporales
+*.log
+dev.log
+server.log
+*.pid
+.api-build-hidden
+.api-build-hidden-duplicate
+
+# lockfile que no usa el server (server/package.json usa el suyo)
+package-lock.json
+yarn.lock
+
+# config del entorno local
+.env
+.env*
+.vercel
+.claude

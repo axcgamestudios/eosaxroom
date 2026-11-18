@@ -1,5 +1,10 @@
 # Backend wisp de axcsOS (transporte del navegador)
 
+> Nota de almacenamiento: este servidor wisp es un relay TCP **sin estado**:
+> no escribe nada en disco (ni caché, ni logs persistentes, ni cookies).
+> El que sí usa disco es `aos-backend.mjs` (ver abajo, sección
+> "Control de almacenamiento").
+
 El navegador integrado de axcsOS usa el motor **Scramjet** (Service Worker + rewriter
 WASM que corre 100% en el navegador) y necesita un único servicio de backend: un
 **servidor wisp** que hace de transporte (WebSocket → TCP) hacia los sitios web reales.
@@ -7,7 +12,23 @@ WASM que corre 100% en el navegador) y necesita un único servicio de backend: u
 Este directorio contiene ese servidor, listo para desplegar en cualquier host con
 Node.js 18+ (Render, Railway, Fly.io, Cleavr, un VPS, Docker…).
 
-## Variables de entorno
+## Control de almacenamiento (aos-backend.mjs)
+
+El backend de cuentas/mensajería guarda TODO en un único `data.json`. En hosts
+gratuitos con cuota de disco limitada puede acabar llenando el disco. Ahora lleva
+límites automáticos (se pueden ajustar por variable de entorno):
+
+| Variable | Por defecto | Descripción |
+|---|---|---|
+| `AOS_DATA_FILE` | `server/data.json` | Ruta del archivo de datos. Pon `/tmp/aos-data.json` en hosts con disco efímero (Render free, etc.): los datos se pierden al reiniciar, pero el disco nunca se llena |
+| `AOS_ATTACH_TTL_DAYS` | `7` | Los adjuntos (imágenes/audio, guardados en base64) se borran pasados esos días. El texto del mensaje se conserva |
+| `AOS_ATTACH_MAX_MB` | `32` | Presupuesto global de adjuntos; si se supera, se borran los más antiguos (FIFO) |
+| `AOS_SWEEP_MINUTES` | `60` | Cada cuánto corre la purga de tokens caducados y adjuntos viejos |
+
+Además: máx. 500 mensajes por chat, tokens con caducidad automática de 30 días,
+adjuntos ≤ 2 MB, avatares ≤ 300 KB. Con esto `data.json` se mantiene en unos pocos MB.
+
+## Variables de entorno (wisp)
 
 | Variable | Por defecto | Descripción |
 |---|---|---|
